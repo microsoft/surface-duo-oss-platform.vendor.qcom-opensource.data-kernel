@@ -159,6 +159,9 @@
 /* #define DWC_ETH_QOS_ENABLE_TX_DESC_DUMP */
 /* #define DWC_ETH_QOS_ENABLE_RX_DESC_DUMP */
 
+/*NOTE: Uncomment below line to enable error counters in TX interrupt*/
+//#define DWC_ETH_QOS_ENABLE_ERROR_COUNTERS
+
 /* NOTE: Uncomment below line for TX and RX PACKET DUMP in KERNEL LOG */
 /* #define DWC_ETH_QOS_ENABLE_TX_PKT_DUMP */
 /* #define DWC_ETH_QOS_ENABLE_RX_PKT_DUMP */
@@ -592,7 +595,7 @@
 
 #define DEFAULT_INT_MOD 1
 #define AVB_INT_MOD 8
-#define IP_PKT_INT_MOD 16
+#define IP_PKT_INT_MOD 32
 
 #define DMA_TX_CH0 0
 #define DMA_TX_CH1 1

@@ -2916,8 +2916,7 @@ static INT enable_rx_dma_interrupts(UINT QINX,
 	/* Reset all Rx interrupt bits */
 	VARDMA_IER = VARDMA_IER & (ULONG)(DMA_RX_INT_RESET_MASK);
 
-	VARDMA_IER = VARDMA_IER | ((0x1) << 7) |
-		((0x1) << 8) | ((0x1) << 14) | ((0x1) << 12) |
+	VARDMA_IER = VARDMA_IER | ((0x1) << 7) | ((0x1) << 14) | ((0x1) << 12) |
 	    ((0x1) << 15);
 
 	/* RIE - Receive Interrupt Enable */

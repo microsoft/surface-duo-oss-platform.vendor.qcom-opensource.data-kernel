@@ -2336,7 +2336,7 @@ UINT DWC_ETH_QOS_get_total_desc_cnt(struct DWC_ETH_QOS_prv_data *pdata,
 	return count;
 }
 
-UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb,
+inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb,
 	struct DWC_ETH_QOS_prv_data *pdata)
 {
 	UINT ret = DEFAULT_INT_MOD;
@@ -2763,7 +2763,9 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct desc_if_struct *desc_if = &pdata->desc_if;
 #ifndef DWC_ETH_QOS_CERTIFICATION_PKTBURSTCNT
+#ifdef DWC_ETH_QOS_ENABLE_ERROR_COUNTERS
 	int err_incremented;
+#endif
 #endif
 	unsigned int tstamp_taken = 0;
 	unsigned long flags;
@@ -2813,6 +2815,7 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 				}
 			}
 
+#ifdef DWC_ETH_QOS_ENABLE_ERROR_COUNTERS
 			err_incremented = 0;
 			if (hw_if->tx_window_error) {
 				if (hw_if->tx_window_error(txptr)) {
@@ -2848,6 +2851,7 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 
 			if (err_incremented == 1)
 				dev->stats.tx_errors++;
+#endif
 
 			pdata->xstats.q_tx_pkt_n[qinx]++;
 			pdata->xstats.tx_pkt_n++;
@@ -3752,7 +3756,9 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 				DWC_ETH_QOS_receive_skb(pdata, dev, skb, qinx);
 				received++;
 			} else {
+#ifdef DWC_ETH_QOS_ENABLE_RX_DESC_DUMP
 				dump_rx_desc(qinx, RX_NORMAL_DESC, desc_data->cur_rx);
+#endif
 				if (!(RX_NORMAL_DESC->RDES3 &
 					  DWC_ETH_QOS_RDESC3_LD))
 					DBGPR("Received oversized pkt, spanned across multiple desc\n");
