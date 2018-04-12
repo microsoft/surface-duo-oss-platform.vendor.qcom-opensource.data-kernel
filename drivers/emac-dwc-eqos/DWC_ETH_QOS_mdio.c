@@ -816,7 +816,7 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 	struct phy_device *phydev = NULL;
 	char phy_id_fmt[MII_BUS_ID_SIZE + 3];
 	char bus_id[MII_BUS_ID_SIZE];
-	int ret = Y_SUCCESS;
+
 	u32 phydata = 0;
 
 	DBGPR_MDIO("-->DWC_ETH_QOS_init_phy\n");
@@ -844,8 +844,11 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 		phy_disconnect(phydev);
 		return -ENODEV;
 	}
+
+#ifndef DWC_ETH_QOS_EMULATION_PLATFORM
 	if ((phydev->phy_id == ATH8031_PHY_ID) || (phydev->phy_id == ATH8035_PHY_ID))
 		pdata->phy_intr_en = true;
+#endif
 
 	if (pdata->interface == PHY_INTERFACE_MODE_GMII) {
 		phydev->supported = PHY_DEFAULT_FEATURES;
