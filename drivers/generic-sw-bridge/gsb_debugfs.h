@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved. */
 /*
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,12 +23,13 @@
 
 static void *ipc_gsb_log_ctxt;
 static void *ipc_gsb_log_ctxt_low;
+static bool dynamic_debug = false;
 
 
 /*
  * Debug output verbosity level.
  */
-#define DEBUG_LEVEL 3
+#define DEBUG_LEVEL 5
 
 #if (DEBUG_LEVEL < 1)
 #define DEBUG_ERROR(s, ...)
@@ -102,8 +103,14 @@ do { \
 		__func__, __LINE__, ##__VA_ARGS__); \
 		} \
 } while (0)
-
 #endif
+
+#define DYN_DEBUG(fmt, args...) \
+do { \
+	if (dynamic_debug) { \
+		pr_err("%s:%d:" fmt, __func__, __LINE__, ## args); \
+	} \
+} while (0)
 
 #define IPC_ERROR_LOW(s, ...) \
 do { \
