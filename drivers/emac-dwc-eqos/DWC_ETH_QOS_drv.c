@@ -3308,8 +3308,9 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 				pdata->tcp_pkt =
 					DWC_ETH_QOS_check_for_tcp_payload(RX_NORMAL_DESC);
 			}
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 			dev->last_rx = jiffies;
+#endif
 			/* update the statistics */
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += skb->len;
@@ -3577,7 +3578,9 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 					DWC_ETH_QOS_check_for_tcp_payload(RX_NORMAL_DESC);
 			}
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 			dev->last_rx = jiffies;
+#endif
 			/* update the statistics */
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += skb->len;
@@ -3749,7 +3752,9 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 						   RX_NORMAL_DESC);
 				}
 
-				dev->last_rx = jiffies;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+			dev->last_rx = jiffies;
+#endif
 				/* update the statistics */
 				dev->stats.rx_packets++;
 				dev->stats.rx_bytes += skb->len;
@@ -3909,7 +3914,11 @@ int DWC_ETH_QOS_poll_mq(struct napi_struct *napi, int budget)
 		} else {
 
 			spin_lock_irqsave(&pdata->lock, flags);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 			__napi_complete(napi);
+#else
+			napi_complete_done(napi, received);
+#endif
 			/* Enable all ch RX interrupt */
 			DWC_ETH_QOS_enable_all_ch_rx_interrpt(pdata);
 			spin_unlock_irqrestore(&pdata->lock, flags);
