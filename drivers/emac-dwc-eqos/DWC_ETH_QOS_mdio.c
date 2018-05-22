@@ -406,7 +406,13 @@ static void set_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata,
 
 	EMACDBG("Exit\n");
 }
-
+/*!
+ * Configuring phy Rx,Tx delay are not neded on
+ * EMULATION PLATFORM as DLL block is not emulated.
+ * We should use VI hacks to set proper Rx,Tx delay on
+ * EMULATION PLATFORM
+*/
+#ifndef DWC_ETH_QOS_EMULATION_PLATFORM
 /*!
  * \brief Determine whether or not to enable or disable
  * RX/TX delay in PHY.
@@ -451,6 +457,7 @@ static void configure_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata)
 	}
 	EMACDBG("Exit\n");
 }
+#endif
 
 /*!
  * \brief Function to set RGMII clock and enable bus
@@ -547,9 +554,12 @@ static inline int DWC_ETH_QOS_configure_io_macro_dll_settings(
 	int ret = Y_SUCCESS;
 
 	EMACDBG("Enter\n");
-
-	DWC_ETH_QOS_rgmii_io_macro_dll_reset();
+/*
+* DLL is not emulated on EMULATION_PLATFORM
+* default DLL setting should be used.
+*/
 #ifndef DWC_ETH_QOS_EMULATION_PLATFORM
+	DWC_ETH_QOS_rgmii_io_macro_dll_reset();
 	/* For RGMII ID mode with internal delay*/
 	if (pdata->io_macro_phy_intf == RGMII_MODE && !pdata->io_macro_tx_mode_non_id) {
 		EMACDBG("Initialize and configure SDCC DLL\n");
@@ -711,8 +721,10 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 			EMACDBG("Bypass mode read from device tree = %d\n",
 					pdata->io_macro_tx_mode_non_id);
 
+#ifndef DWC_ETH_QOS_EMULATION_PLATFORM
 			/* Set PHY delays here */
 			configure_phy_rx_tx_delay(pdata);
+#endif
 
 			/* Set RGMII clock and bus scale request based on link speed and phy mode */
 			DWC_ETH_QOS_set_clk_and_bus_config(pdata, pdata->speed);
