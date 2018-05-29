@@ -1436,7 +1436,7 @@ static int DWC_ETH_QOS_alloc_split_hdr_rx_buf(
 	      buffer->rx_hdr_size);
  check_page:
 	if (!buffer->dma)
-		buffer->dma = dma_map_single(&pdata->pdev->dev,
+		buffer->dma = dma_map_single(GET_MEM_PDEV_DEV,
 					buffer->skb->data,
 					(2 * buffer->rx_hdr_size),
 					DMA_FROM_DEVICE);
@@ -1452,7 +1452,7 @@ static int DWC_ETH_QOS_alloc_split_hdr_rx_buf(
 		}
 	}
 	if (!buffer->dma2)
-		buffer->dma2 = dma_map_page(&pdata->pdev->dev,
+		buffer->dma2 = dma_map_page(GET_MEM_PDEV_DEV,
 				    buffer->page2, 0,
 				    PAGE_SIZE, DMA_FROM_DEVICE);
 	buffer->len2 = PAGE_SIZE;
@@ -1508,7 +1508,7 @@ static int DWC_ETH_QOS_alloc_jumbo_rx_buf(struct DWC_ETH_QOS_prv_data *pdata,
 		}
 	}
 	if (!buffer->dma)
-		buffer->dma = dma_map_page(&pdata->pdev->dev,
+		buffer->dma = dma_map_page(GET_MEM_PDEV_DEV,
 					   buffer->page, 0,
 					   PAGE_SIZE, DMA_FROM_DEVICE);
 	buffer->len = PAGE_SIZE;
@@ -1522,7 +1522,7 @@ static int DWC_ETH_QOS_alloc_jumbo_rx_buf(struct DWC_ETH_QOS_prv_data *pdata,
 		}
 	}
 	if (!buffer->dma2)
-		buffer->dma2 = dma_map_page(&pdata->pdev->dev,
+		buffer->dma2 = dma_map_page(GET_MEM_PDEV_DEV,
 					    buffer->page2, 0,
 					    PAGE_SIZE, DMA_FROM_DEVICE);
 	buffer->len2 = PAGE_SIZE;
@@ -1557,13 +1557,15 @@ static int DWC_ETH_QOS_alloc_rx_buf(struct DWC_ETH_QOS_prv_data *pdata,
 	struct sk_buff *skb = buffer->skb;
 	unsigned int rx_buffer_len = pdata->rx_buffer_len;
 	dma_addr_t ipa_rx_buf_dma_addr;
+	struct sg_table *buff_sgt;
+	int ret = 0;
 
 	DBGPR("-->DWC_ETH_QOS_alloc_rx_buf\n");
 
 	if (pdata->ipa_enabled && qinx == IPA_DMA_RX_CH) {
 		rx_buffer_len = DWC_ETH_QOS_ETH_FRAME_LEN_IPA;
 		buffer->ipa_buff_va = dma_alloc_coherent(
-		   &pdata->pdev->dev, rx_buffer_len,
+		   GET_MEM_PDEV_DEV, rx_buffer_len,
 		   &ipa_rx_buf_dma_addr, GFP_KERNEL);
 
 		if (!buffer->ipa_buff_va) {
@@ -1573,6 +1575,23 @@ static int DWC_ETH_QOS_alloc_rx_buf(struct DWC_ETH_QOS_prv_data *pdata,
 
 		buffer->len = rx_buffer_len;
 		buffer->dma = ipa_rx_buf_dma_addr;
+
+		buff_sgt = kzalloc(sizeof (*buff_sgt), GFP_KERNEL);
+		if (buff_sgt) {
+			ret = dma_get_sgtable(GET_MEM_PDEV_DEV, buff_sgt,
+						buffer->ipa_buff_va, ipa_rx_buf_dma_addr,
+						rx_buffer_len);
+			if (ret == Y_SUCCESS) {
+				buffer->ipa_rx_buff_phy_addr = sg_phys(buff_sgt->sgl);
+				sg_free_table(buff_sgt);
+			} else {
+				EMACERR("Failed to get sgtable for allocated RX buffer.\n");
+			}
+			kfree(buff_sgt);
+			buff_sgt = NULL;
+		} else {
+			EMACERR("Failed to allocate memory for RX buff sgtable.\n");
+		}
 		return 0;
 	} else {
 
@@ -1590,7 +1609,7 @@ static int DWC_ETH_QOS_alloc_rx_buf(struct DWC_ETH_QOS_prv_data *pdata,
 		buffer->len = rx_buffer_len;
 
  map_skb:
-		buffer->dma = dma_map_single(&pdata->pdev->dev, skb->data,
+		buffer->dma = dma_map_single(GET_MEM_PDEV_DEV, skb->data,
 							rx_buffer_len, DMA_FROM_DEVICE);
 		if (dma_mapping_error(&pdata->pdev->dev, buffer->dma))
 			dev_alert(&pdata->pdev->dev, "failed to do the RX dma map\n");
@@ -1663,6 +1682,8 @@ static void DWC_ETH_QOS_default_common_confs(struct DWC_ETH_QOS_prv_data *pdata)
 	pdata->l2_filtering_mode = !!pdata->hw_feat.hash_tbl_sz;
 	pdata->tx_path_in_lpi_mode = 0;
 	pdata->use_lpi_tx_automate = true;
+	pdata->use_lpi_auto_entry_timer = true;
+
 	pdata->one_nsec_accuracy = 1;
 
 	DBGPR("<--DWC_ETH_QOS_default_common_confs\n");
@@ -1856,33 +1877,8 @@ static int DWC_ETH_QOS_open(struct net_device *dev)
 #ifndef DWC_ETH_QOS_CONFIG_PGTEST
 	netif_tx_start_all_queues(dev);
 
-	if (pdata->ipa_enabled) {
-		/* Configure IPA Related Stuff */
-		ret = DWC_ETH_QOS_ipa_ready(pdata);
-		if (pdata->prv_ipa.ipa_ready) {
-			EMACDBG("%s:%d ipa ready\n", __func__, __LINE__);
-			ret = DWC_ETH_QOS_ipa_offload_init(pdata);
-			if (!ret) {
-				EMACDBG("IPA Offload Initialized Successfully \n");
-				pdata->prv_ipa.ipa_offload_init = true;
-			}
-		}
-		else {
-			EMACINFO("%s:%d ipa not ready\n", __func__, __LINE__);
-		}
-
-		/* Configure IPA Related Stuff */
-		if (pdata->prv_ipa.ipa_uc_ready) {
-			EMACINFO("%s:%d ipa uC ready\n", __func__, __LINE__);
-			ret = DWC_ETH_QOS_enable_ipa_offload(pdata);
-			if (ret) {
-				EMACERR("%s:%d unable to enable ipa offload\n",
-					   __func__, __LINE__);
-				goto err_out_desc_buf_alloc_failed;
-			}
-		}
-		else
-			EMACINFO("%s:%d ipa uC not ready\n", __func__, __LINE__);
+	if (pdata->ipa_enabled && DWC_ETH_QOS_is_phy_link_up(pdata)) {
+		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DEV_OPEN);
 	}
 #else
 	netif_tx_disable(dev);
@@ -1939,10 +1935,7 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 	DWC_ETH_QOS_all_ch_napi_disable(pdata);
 
 	if (pdata->ipa_enabled) {
-		ipa_uc_offload_dereg_rdyCB(IPA_UC_NTN);
-		ret = DWC_ETH_QOS_disable_ipa_offload(pdata);
-		if (ret)
-			return ret;
+		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DEV_CLOSE);
 	}
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
 
@@ -2427,7 +2420,7 @@ static int DWC_ETH_QOS_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	if ((pdata->eee_enabled) && (pdata->tx_path_in_lpi_mode) &&
-	    (!pdata->use_lpi_tx_automate))
+	    (!pdata->use_lpi_tx_automate) && (!pdata->use_lpi_auto_entry_timer))
 		DWC_ETH_QOS_disable_eee_mode(pdata);
 
 	memset(&pdata->tx_pkt_features, 0, sizeof(pdata->tx_pkt_features));
@@ -2900,7 +2893,7 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 #endif
 
 	if ((pdata->eee_enabled) && (!pdata->tx_path_in_lpi_mode) &&
-	    (!pdata->use_lpi_tx_automate)) {
+	    (!pdata->use_lpi_tx_automate) && (!pdata->use_lpi_auto_entry_timer)) {
 		DWC_ETH_QOS_enable_eee_mode(pdata);
 		mod_timer(&pdata->eee_ctrl_timer,
 			  DWC_ETH_QOS_LPI_TIMER(DWC_ETH_QOS_DEFAULT_LPI_TIMER));
@@ -3117,12 +3110,12 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 			buffer->skb = NULL;
 
 			/* first buffer pointer */
-			dma_unmap_single(&pdata->pdev->dev, buffer->dma,
+			dma_unmap_single(GET_MEM_PDEV_DEV, buffer->dma,
 					 (2 * buffer->rx_hdr_size), DMA_FROM_DEVICE);
 			buffer->dma = 0;
 
 			/* second buffer pointer */
-			dma_unmap_page(&pdata->pdev->dev, buffer->dma2,
+			dma_unmap_page(GET_MEM_PDEV_DEV, buffer->dma2,
 				       PAGE_SIZE, DMA_FROM_DEVICE);
 			buffer->dma2 = 0;
 
@@ -3296,9 +3289,9 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 						 * time stamp, hence delay the packet reception
 						 */
 						buffer->skb = skb;
-						buffer->dma = dma_map_single(&pdata->pdev->dev, skb->data,
+						buffer->dma = dma_map_single(GET_MEM_PDEV_DEV, skb->data,
 								pdata->rx_buffer_len, DMA_FROM_DEVICE);
-						if (dma_mapping_error(&pdata->pdev->dev, buffer->dma))
+						if (dma_mapping_error(GET_MEM_PDEV_DEV, buffer->dma))
 							dev_alert(&pdata->pdev->dev, "failed to do the RX dma map\n");
 
 						goto rx_tstmp_failed;
@@ -3396,12 +3389,12 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 			buffer->skb = NULL;
 
 			/* first buffer pointer */
-			dma_unmap_page(&pdata->pdev->dev, buffer->dma,
+			dma_unmap_page(GET_MEM_PDEV_DEV, buffer->dma,
 				       PAGE_SIZE, DMA_FROM_DEVICE);
 			buffer->dma = 0;
 
 			/* second buffer pointer */
-			dma_unmap_page(&pdata->pdev->dev, buffer->dma2,
+			dma_unmap_page(GET_MEM_PDEV_DEV, buffer->dma2,
 				       PAGE_SIZE, DMA_FROM_DEVICE);
 			buffer->dma2 = 0;
 
@@ -3564,9 +3557,9 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 						 * time stamp, hence delay the packet reception
 						 */
 						buffer->skb = skb;
-						buffer->dma = dma_map_single(&pdata->pdev->dev, skb->data,
+						buffer->dma = dma_map_single(GET_MEM_PDEV_DEV, skb->data,
 								pdata->rx_buffer_len, DMA_FROM_DEVICE);
-						if (dma_mapping_error(&pdata->pdev->dev, buffer->dma))
+						if (dma_mapping_error(GET_MEM_PDEV_DEV, buffer->dma))
 							dev_alert(&pdata->pdev->dev, "failed to do the RX dma map\n");
 
 						goto rx_tstmp_failed;
@@ -3666,7 +3659,7 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 			/* assign it to new skb */
 			skb = buffer->skb;
 			buffer->skb = NULL;
-			dma_unmap_single(&pdata->pdev->dev, buffer->dma,
+			dma_unmap_single(GET_MEM_PDEV_DEV, buffer->dma,
 					 pdata->rx_buffer_len, DMA_FROM_DEVICE);
 			buffer->dma = 0;
 
@@ -3734,9 +3727,9 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 							 */
 							buffer->skb = skb;
 							buffer->dma =
-								dma_map_single(&pdata->pdev->dev, skb->data,
+								dma_map_single(GET_MEM_PDEV_DEV, skb->data,
 									       pdata->rx_buffer_len, DMA_FROM_DEVICE);
-							if (dma_mapping_error(&pdata->pdev->dev, buffer->dma))
+							if (dma_mapping_error(GET_MEM_PDEV_DEV, buffer->dma))
 								dev_alert(&pdata->pdev->dev,
 									  "failed to do the RX dma map\n");
 
@@ -5670,7 +5663,7 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	}
 #endif
 
-	spin_lock(&pdata->lock);
+	mutex_lock(&pdata->mlock);
 	switch (cmd) {
 	case SIOCGMIIPHY:
 		data->phy_id = pdata->phyaddr;
@@ -5707,7 +5700,7 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		break;
 
 	case DWC_ETH_QOS_PRV_IOCTL_IPA:
-		if ( !pdata->prv_ipa.ipa_ready || !pdata->prv_ipa.ipa_uc_ready ) {
+		if (!pdata->prv_ipa.ipa_uc_ready ) {
 			ret = -EAGAIN;
 			EMACINFO("IPA or IPA uc is not ready \n");
 			break;
@@ -5723,7 +5716,7 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		ret = -EOPNOTSUPP;
 		dev_alert(&pdata->pdev->dev, "Unsupported IOCTL call\n");
 	}
-	spin_unlock(&pdata->lock);
+	mutex_unlock(&pdata->mlock);
 
 	DBGPR("<--DWC_ETH_QOS_ioctl\n");
 

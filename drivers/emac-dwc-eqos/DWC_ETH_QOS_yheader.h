@@ -63,6 +63,7 @@
 #include <linux/clk.h>
 
 #include <linux/platform_device.h>
+#include <linux/of_platform.h>
 #include <linux/timer.h>
 #include <linux/sched.h>
 #include <linux/highmem.h>
@@ -72,6 +73,8 @@
 #include <linux/version.h>
 #include <linux/ptrace.h>
 #include <linux/dma-mapping.h>
+#include <asm/dma-iommu.h>
+#include <linux/iommu.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
@@ -544,7 +547,8 @@
 
 /* for EEE */
 #define DWC_ETH_QOS_DEFAULT_LPI_LS_TIMER 0x3E8 /* 1000 in decimal */
-#define DWC_ETH_QOS_DEFAULT_LPI_TWT_TIMER 0x0
+#define DWC_ETH_QOS_DEFAULT_LPI_TWT_TIMER 0x11 /* Typical 17uS */
+#define DWC_ETH_QOS_DEFAULT_LPI_LPIET_TIMER 125 /* 8*125uS=1000uS=1mS*/
 
 #define DWC_ETH_QOS_DEFAULT_LPI_TIMER 1000 /* LPI Tx local expiration time in msec */
 #define DWC_ETH_QOS_LPI_TIMER(x) (jiffies + msecs_to_jiffies(x))
@@ -612,9 +616,13 @@
 #define EMAC_GPIO_PHY_INTR_REDIRECT_NAME "qcom,phy-intr-redirect"
 #define EMAC_GPIO_PHY_RESET_NAME "qcom,phy-reset"
 
-#define VOTE_IDX_10MBPS 0
-#define VOTE_IDX_100MBPS 1
-#define VOTE_IDX_1000MBPS 2
+#define VOTE_IDX_0MBPS 0
+#define VOTE_IDX_10MBPS 1
+#define VOTE_IDX_100MBPS 2
+#define VOTE_IDX_1000MBPS 3
+
+/* AHB clock vote is same for 1000/100Mbps and set to 133MHz */
+ #define CLOCK_AHB_MHZ 133
 
 /* Clock rates for various modes */
 #define RGMII_1000_NOM_CLK_FREQ      (250 * 1000 * 1000UL)
@@ -971,8 +979,10 @@ struct hw_if_struct {
 	INT(*set_eee_pls)(int phy_link);
 	INT(*set_eee_timer)(int lpi_lst, int lpi_twt);
 	u32 (*get_lpi_status)(void);
-
 	INT(*set_lpi_tx_automate)(void);
+	INT(*set_lpi_tx_auto_entry_timer_en)(void);
+	INT(*set_lpi_tx_auto_entry_timer)(u32);
+	INT(*set_lpi_us_tic_counter)(u32);
 
 	/* for ARP */
 	INT(*config_arp_offload)(int enb_dis);
@@ -1013,6 +1023,7 @@ struct DWC_ETH_QOS_tx_buffer {
 #ifdef DWC_ETH_QOS_CONFIG_PGTEST
 	unsigned char slot_number;
 #endif
+	phys_addr_t ipa_tx_buff_phy_addr; /* physical address of ipa TX buff */
 };
 
 struct DWC_ETH_QOS_tx_wrapper_descriptor {
@@ -1085,6 +1096,7 @@ struct DWC_ETH_QOS_rx_buffer {
 	unsigned short len2;	/* length of received packet-second buffer */
 
 	unsigned short rx_hdr_size; /* header buff size in case of split header */
+	phys_addr_t ipa_rx_buff_phy_addr; /* physical address of ipa RX buff */
 };
 
 struct DWC_ETH_QOS_rx_wrapper_descriptor {
@@ -1479,18 +1491,28 @@ struct DWC_ETH_QOS_prv_ipa_data {
 	struct dentry *debugfs_dir;
 
 	/* IPA state variables */
-	bool ipa_ready;
+	/* State of EMAC HW initilization */
+	bool emac_dev_ready;
+	/* State of IPA and IPA UC readiness */
 	bool ipa_uc_ready;
+	/* State of IPA Offload intf registration with IPA driver */
 	bool ipa_offload_init;
+	/* State of IPA pipes connection */
 	bool ipa_offload_conn;
+	/* State of debugfs creation */
 	bool ipa_debugfs_exists;
+	/* State of IPA offload suspended by user */
 	bool ipa_offload_susp;
+	/* State of IPA offload enablement from PHY link event*/
+	bool ipa_offload_link_down;
 
 	/* Dev state */
 	struct work_struct ntn_ipa_rdy_work;
 	UINT ipa_ver;
 	bool vlan_enable;
 	unsigned short vlan_id;
+
+	struct mutex ipa_lock;
 };
 
 struct DWC_ETH_QOS_prv_data {
@@ -1500,6 +1522,7 @@ struct DWC_ETH_QOS_prv_data {
 	bool ipa_enabled;
 	struct DWC_ETH_QOS_res_data *res_data;
 	bool phy_intr_en;
+	bool always_on_phy;
 
 	struct msm_bus_scale_pdata *bus_scale_vec;
 	uint32_t bus_hdl;
@@ -1666,6 +1689,7 @@ struct DWC_ETH_QOS_prv_data {
 	int eee_enabled;
 	int eee_active;
 	int tx_lpi_timer;
+	bool use_lpi_auto_entry_timer;
 
 	/* arp offload enable/disable. */
 	u32 arp_offload;
@@ -1721,6 +1745,23 @@ static const u32 qca8337_phy_ids[] = {
 	0x004dd036, /* qca8337 PHY*/
 };
 
+/* SMMU related */
+struct emac_emb_smmu_cb_ctx {
+	bool valid;
+	struct platform_device *pdev_master;
+	struct platform_device *smmu_pdev;
+	struct dma_iommu_mapping *mapping;
+	struct iommu_domain *iommu;
+	u32 va_start;
+	u32 va_size;
+	u32 va_end;
+};
+
+extern struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx;
+
+#define GET_MEM_PDEV_DEV (emac_emb_smmu_ctx.valid ? \
+			&emac_emb_smmu_ctx.smmu_pdev->dev : &pdata->pdev->dev)
+
 /* Function prototypes*/
 
 void DWC_ETH_QOS_init_function_ptrs_dev(struct hw_if_struct *);
@@ -1735,6 +1776,8 @@ void DWC_ETH_QOS_get_pdata(struct DWC_ETH_QOS_prv_data *pdata);
 int create_debug_files(void);
 void remove_debug_files(void);
 
+void DWC_ETH_QOS_scale_clks(struct DWC_ETH_QOS_prv_data *pdata, int speed);
+bool DWC_ETH_QOS_is_phy_link_up(struct DWC_ETH_QOS_prv_data *pdata);
 int DWC_ETH_QOS_mdio_register(struct net_device *dev);
 void DWC_ETH_QOS_mdio_unregister(struct net_device *dev);
 INT DWC_ETH_QOS_mdio_read_direct(struct DWC_ETH_QOS_prv_data *pdata,
@@ -1795,9 +1838,6 @@ int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *);
 int DWC_ETH_QOS_sdcc_set_bypass_mode(void);
 int DWC_ETH_QOS_rgmii_io_macro_dll_reset(void);
 void dump_rgmii_io_macro_registers(void);
-static int DWC_ETH_QOS_config_link(struct DWC_ETH_QOS_prv_data* pdata);
-static inline int DWC_ETH_QOS_configure_io_macro_dll_settings(
-			struct DWC_ETH_QOS_prv_data *pdata);
 
 /* POR values for IO macro and DLL registers */
 #define EMAC_RGMII_IO_MACRO_CONFIG_POR 0x40C01343
@@ -1820,7 +1860,7 @@ void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_dma_desc_stats_init(struct DWC_ETH_QOS_prv_data *pdata);
 
 /* For debug prints*/
-#define DRV_NAME "emac_dwc_eqos"
+#define DRV_NAME "qcom-emac-dwc-eqos"
 #define dev_name_ipa_rx "IPA_RX"
 #define dev_name_emac_rx "EMAC_RX"
 #define dev_name_ipa_tx "IPA_TX"

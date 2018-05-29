@@ -48,6 +48,7 @@
  * @brief: Driver functions.
  */
 #include "DWC_ETH_QOS_yheader.h"
+#include "DWC_ETH_QOS_ipa.h"
 
 /*!
  * \brief read MII PHY register, function called by the driver alone
@@ -452,6 +453,82 @@ static void configure_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata)
 }
 
 /*!
+ * \brief Function to set RGMII clock and enable bus
+ * scaling.
+ *
+ * \details Function to set RGMII clock and enable bus
+ * scaling.
+ *
+ * \param[in] pdata - pointer to platform data
+ *
+ * \return void
+ *
+ * \retval Y_SUCCESS on success and Y_FAILURE on failure.
+ */
+static void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	EMACDBG("Enter\n");
+
+	switch (pdata->io_macro_phy_intf) {
+	case RGMII_MODE:
+		switch (pdata->speed) {
+
+		case SPEED_1000:
+			pdata->rgmii_clk_rate = RGMII_1000_NOM_CLK_FREQ;
+			break;
+
+		case SPEED_100:
+			if (pdata->io_macro_tx_mode_non_id)
+				pdata->rgmii_clk_rate = RGMII_NON_ID_MODE_100_LOW_SVS_CLK_FREQ;
+			else
+				pdata->rgmii_clk_rate = RGMII_ID_MODE_100_LOW_SVS_CLK_FREQ;
+			break;
+
+		case SPEED_10:
+			if (pdata->io_macro_tx_mode_non_id)
+				pdata->rgmii_clk_rate = RGMII_NON_ID_MODE_10_LOW_SVS_CLK_FREQ;
+			else
+				pdata->rgmii_clk_rate = RGMII_ID_MODE_10_LOW_SVS_CLK_FREQ;
+			break;
+		}
+		break;
+
+	case RMII_MODE:
+		switch (pdata->speed) {
+		case SPEED_100:
+			pdata->rgmii_clk_rate = RMII_100_LOW_SVS_CLK_FREQ;
+			break;
+
+		case SPEED_10:
+			pdata->rgmii_clk_rate = RMII_10_LOW_SVS_CLK_FREQ;
+			break;
+		}
+		break;
+
+	case MII_MODE:
+		switch (pdata->speed) {
+		case SPEED_100:
+			pdata->rgmii_clk_rate = MII_100_LOW_SVS_CLK_FREQ;
+			break;
+		case SPEED_10:
+			pdata->rgmii_clk_rate = MII_10_LOW_SVS_CLK_FREQ;
+			break;
+		}
+		break;
+	}
+
+	if (pdata->bus_hdl) {
+		if (msm_bus_scale_client_update_request(pdata->bus_hdl, pdata->vote_idx))
+			WARN_ON(1);
+	}
+
+	if (pdata->res_data->rgmii_clk)
+		clk_set_rate(pdata->res_data->rgmii_clk, pdata->rgmii_clk_rate);
+
+	EMACDBG("Exit\n");
+
+}
+/*!
  * \brief Function to configure IO macro and DLL settings.
  *
  * \details Function to configure IO macro and DLL settings based
@@ -510,7 +587,7 @@ static inline int DWC_ETH_QOS_configure_io_macro_dll_settings(
  * \return 0 on success
  */
 
-static int DWC_ETH_QOS_config_link(struct DWC_ETH_QOS_prv_data* pdata)
+static int DWC_ETH_QOS_config_qca_link(struct DWC_ETH_QOS_prv_data* pdata)
 {
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	int ret = Y_SUCCESS;
@@ -537,6 +614,9 @@ static int DWC_ETH_QOS_config_link(struct DWC_ETH_QOS_prv_data* pdata)
 	EMACDBG("pdata->interface = %d\n", pdata->interface);
 	pdata->oldlink = 1;
 	pdata->oldduplex = 1;
+
+	/* Set RGMII clock and bus scale request based on link speed and phy mode */
+	DWC_ETH_QOS_set_clk_and_bus_config(pdata);
 
 	ret = DWC_ETH_QOS_configure_io_macro_dll_settings(pdata);
 
@@ -634,10 +714,13 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 			/* Set PHY delays here */
 			configure_phy_rx_tx_delay(pdata);
 
+			/* Set RGMII clock and bus scale request based on link speed and phy mode */
+			DWC_ETH_QOS_set_clk_and_bus_config(pdata);
+
 			ret = DWC_ETH_QOS_configure_io_macro_dll_settings(pdata);
 			if (ret < 0) {
 				EMACERR("Failed to configure IO macro and DLL settings\n");
-				return ret;
+				return;
 			}
 		}
 
@@ -652,8 +735,19 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 		pdata->oldduplex = -1;
 	}
 
-	if (new_state)
+	if (new_state) {
 		phy_print_status(phydev);
+
+		if (pdata->ipa_enabled && netif_running(dev)) {
+			if (phydev->link == 1)
+				 DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_PHY_LINK_UP);
+			else if (phydev->link == 0)
+				DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_PHY_LINK_DOWN);
+		}
+
+		if (phydev->link == 0)
+			DWC_ETH_QOS_scale_clks(pdata,SPEED_10);
+	}
 
 	/* At this stage, it could be need to setup the EEE or adjust some
 	 * MAC related HW registers.
@@ -696,6 +790,11 @@ static void DWC_ETH_QOS_request_phy_wol(struct DWC_ETH_QOS_prv_data *pdata)
 			}
 		}
 	}
+}
+
+bool DWC_ETH_QOS_is_phy_link_up(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	return pdata->always_on_phy ? 1 : (pdata->phydev && pdata->phydev->link);
 }
 
 /*!
@@ -883,6 +982,7 @@ int DWC_ETH_QOS_mdio_register(struct net_device *dev)
 	pdata->phyaddr = phyaddr;
 	pdata->bus_id = 0x1;
 	pdata->phy_intr_en = false;
+	pdata->always_on_phy = false;
 
 	DBGPHY_REGS(pdata);
 
@@ -922,13 +1022,15 @@ int DWC_ETH_QOS_mdio_register(struct net_device *dev)
 	phy_id |= phy_id2;
 	if (DWC_ETH_QOS_phy_id_match(phy_id) == true) {
 		EMACDBG("QCA8337 detected\n");
-		ret = DWC_ETH_QOS_config_link(pdata);
+		ret = DWC_ETH_QOS_config_qca_link(pdata);
 		if (unlikely(ret)) {
 			EMACERR("Failed to configure link in 1 Gbps/full duplex mode"
 				" (error: %d)\n", ret);
 			goto err_out_phy_connect;
-		} else
+		} else{
+			pdata->always_on_phy = true;
 			goto mdio_alloc_done;
+		}
 	}
 
 	ret = DWC_ETH_QOS_init_phy(dev);
