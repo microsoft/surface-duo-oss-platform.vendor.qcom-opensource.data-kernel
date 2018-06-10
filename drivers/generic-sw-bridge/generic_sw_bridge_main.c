@@ -933,7 +933,7 @@ static void gsb_recv_dl_dp(void *priv, struct sk_buff *skb)
 
 	if (NULL == if_info)
 	{
-		IPC_ERROR_LOW("if info is NULL, freed?\n");
+		DEBUG_ERROR("if info is NULL, freed?\n");
 		dev_kfree_skb(skb);
 		BUG();
 		return;
@@ -941,7 +941,7 @@ static void gsb_recv_dl_dp(void *priv, struct sk_buff *skb)
 
 	if (!if_info->net_dev_state)
 	{
-		IPC_ERROR_LOW("%s interface does not exist\n",
+		DEBUG_ERROR("%s interface does not exist\n",
 				if_info->user_config.if_name);
 		dev_kfree_skb(skb);
 		return;
@@ -949,14 +949,14 @@ static void gsb_recv_dl_dp(void *priv, struct sk_buff *skb)
 
 	if (NULL == pgsb_ctx)
 	{
-		IPC_ERROR_LOW("Context is NULL\n");
+		DEBUG_ERROR("Context is NULL\n");
 		dev_kfree_skb(skb);
 		return;
 	}
 
 	if (skb == NULL)
 	{
-		IPC_ERROR_LOW("skb is NULL\n");
+		DEBUG_ERROR("skb is NULL\n");
 		dev_kfree_skb(skb);
 		return;
 	}
