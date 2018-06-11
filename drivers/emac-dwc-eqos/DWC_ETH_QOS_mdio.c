@@ -465,13 +465,13 @@ static void configure_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata)
  *
  * \retval Y_SUCCESS on success and Y_FAILURE on failure.
  */
-static void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdata)
+static void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdata, int speed)
 {
 	EMACDBG("Enter\n");
 
 	switch (pdata->io_macro_phy_intf) {
 	case RGMII_MODE:
-		switch (pdata->speed) {
+		switch (speed) {
 
 		case SPEED_1000:
 			pdata->rgmii_clk_rate = RGMII_1000_NOM_CLK_FREQ;
@@ -494,7 +494,7 @@ static void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdat
 		break;
 
 	case RMII_MODE:
-		switch (pdata->speed) {
+		switch (speed) {
 		case SPEED_100:
 			pdata->rgmii_clk_rate = RMII_100_LOW_SVS_CLK_FREQ;
 			break;
@@ -506,7 +506,7 @@ static void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdat
 		break;
 
 	case MII_MODE:
-		switch (pdata->speed) {
+		switch (speed) {
 		case SPEED_100:
 			pdata->rgmii_clk_rate = MII_100_LOW_SVS_CLK_FREQ;
 			break;
@@ -616,7 +616,7 @@ static int DWC_ETH_QOS_config_qca_link(struct DWC_ETH_QOS_prv_data* pdata)
 	pdata->oldduplex = 1;
 
 	/* Set RGMII clock and bus scale request based on link speed and phy mode */
-	DWC_ETH_QOS_set_clk_and_bus_config(pdata);
+	DWC_ETH_QOS_set_clk_and_bus_config(pdata, pdata->speed);
 
 	ret = DWC_ETH_QOS_configure_io_macro_dll_settings(pdata);
 
@@ -715,7 +715,7 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 			configure_phy_rx_tx_delay(pdata);
 
 			/* Set RGMII clock and bus scale request based on link speed and phy mode */
-			DWC_ETH_QOS_set_clk_and_bus_config(pdata);
+			DWC_ETH_QOS_set_clk_and_bus_config(pdata, pdata->speed);
 
 			ret = DWC_ETH_QOS_configure_io_macro_dll_settings(pdata);
 			if (ret < 0) {
@@ -748,7 +748,7 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 		}
 
 		if (phydev->link == 0)
-			DWC_ETH_QOS_scale_clks(pdata,SPEED_10);
+			DWC_ETH_QOS_set_clk_and_bus_config(pdata, SPEED_10);
 	}
 
 	/* At this stage, it could be need to setup the EEE or adjust some
@@ -823,7 +823,7 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 
 	DBGPR_MDIO("-->DWC_ETH_QOS_init_phy\n");
 
-	pdata->oldlink = 0;
+	pdata->oldlink = -1;
 	pdata->speed = 0;
 	pdata->oldduplex = -1;
 
