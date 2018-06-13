@@ -1505,7 +1505,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 	DWC_ETH_QOS_get_pdata(pdata);
 #endif
 
-	/* store emac hw version to pdata*/
+	/* store emac hw version in pdata*/
 	pdata->emac_hw_version_type = dwc_eth_qos_res_data.emac_hw_version_type;
 
 	/* Scale the clocks to 10Mbps speed */
