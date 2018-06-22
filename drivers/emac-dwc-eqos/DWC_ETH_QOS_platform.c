@@ -49,6 +49,11 @@
 #include "DWC_ETH_QOS_yheader.h"
 #include "DWC_ETH_QOS_ipa.h"
 
+#define EMAC_DEFAULT_BIT_ADDRESSING 32
+#define EMAC_36_BIT_ADDRESSING 36
+#define EMAC_64_BIT_ADDRESSING 64
+
+
 static UCHAR dev_addr[6] = {0, 0x55, 0x7b, 0xb5, 0x7d, 0xf7};
 struct DWC_ETH_QOS_res_data dwc_eth_qos_res_data = {0, };
 static struct msm_bus_scale_pdata *emac_bus_scale_vec = NULL;
@@ -315,6 +320,20 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 		dwc_eth_qos_res_data.emac_hw_version_type = EMAC_HW_None;
 	}
 	EMACDBG(": emac_core_version = %d\n", dwc_eth_qos_res_data.emac_hw_version_type);
+
+	if (of_property_read_bool(pdev->dev.of_node, "dma-bit-mask")) {
+		//read dma-bit-mask value from dtsi
+		ret = of_property_read_u32(pdev->dev.of_node, "dma-bit-mask",
+						&dwc_eth_qos_res_data.bit_mask);
+		//success
+		if (!ret) {
+			EMACDBG("dma-bit-mask read successful\n");
+			dwc_eth_qos_res_data.is_bit_mask = 1;
+		} else {
+			dwc_eth_qos_res_data.is_bit_mask = 0;
+		}
+
+	}
 
 	ret = DWC_ETH_QOS_get_io_macro_config(pdev);
 	if (ret)
@@ -781,6 +800,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 	struct hw_if_struct *hw_if = NULL;
 	struct desc_if_struct *desc_if = NULL;
 	UCHAR tx_q_count = 0, rx_q_count = 0;
+	u32 dma_bit_mask = EMAC_DEFAULT_BIT_ADDRESSING;
 
 	EMACDBG("--> DWC_ETH_QOS_configure_netdevice\n");
 
@@ -867,6 +887,29 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 
 	DWC_ETH_QOS_get_all_hw_features(pdata);
 	DWC_ETH_QOS_print_all_hw_features(pdata);
+
+	if (dwc_eth_qos_res_data.is_bit_mask) {
+
+		if (dwc_eth_qos_res_data.bit_mask == EMAC_64_BIT_ADDRESSING ||
+			dwc_eth_qos_res_data.bit_mask == EMAC_36_BIT_ADDRESSING)
+			dma_bit_mask = dwc_eth_qos_res_data.bit_mask;
+
+		if (dma_set_mask_and_coherent(&pdata->pdev->dev,
+			DMA_BIT_MASK(dma_bit_mask))) {
+			EMACERR("%d Bit DMA set mask failed\n", dma_bit_mask);
+			goto err_dma_set_bit_mask_failed;
+		}
+	} else {
+		/*
+		* We are setting 32 DMA bit mask by default
+		*/
+		if (dma_set_mask_and_coherent(&pdata->pdev->dev,
+			DMA_BIT_MASK(dma_bit_mask))) {
+			EMACERR("%d Bit DMA set mask failed\n", dma_bit_mask);
+			goto err_dma_set_bit_mask_failed;
+		}
+	}
+	EMACINFO("EMAC Bit mask is %d\n", dma_bit_mask);
 
 	ret = desc_if->alloc_queue_struct(pdata);
 	if (ret < 0) {
@@ -1007,6 +1050,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
  err_out_mdio_reg:
 	desc_if->free_queue_struct(pdata);
 
+ err_dma_set_bit_mask_failed:
  err_out_q_alloc_failed:
 	platform_set_drvdata(pdev, NULL);
 

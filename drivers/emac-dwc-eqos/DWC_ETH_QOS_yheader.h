@@ -1509,6 +1509,8 @@ struct DWC_ETH_QOS_res_data {
 	struct clk *rgmii_clk;
 	struct clk *ptp_clk;
 	enum emac_core_version emac_hw_version_type;
+	u32 bit_mask;
+	bool is_bit_mask;
 };
 
 struct DWC_ETH_QOS_prv_ipa_data {
