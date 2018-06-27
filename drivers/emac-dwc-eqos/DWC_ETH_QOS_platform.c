@@ -1451,6 +1451,12 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 		return 0;
 	}
 
+	if ((pdata->ipa_enabled && pdata->prv_ipa.ipa_offload_conn)) {
+		pdata->power_down_type |= DWC_ETH_QOS_EMAC_INTR_WAKEUP;
+		enable_irq_wake(pdata->irq_number);
+		return 0;
+	}
+
 	if (!dev || !netif_running(dev)) {
 		return -EINVAL;
 	}
@@ -1510,6 +1516,12 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 	DBGPR("-->DWC_ETH_QOS_resume\n");
 	if (of_device_is_compatible(pdev->dev.of_node, "qcom,emac-smmu-embedded"))
 		return 0;
+
+	if (pdata->ipa_enabled && pdata->prv_ipa.ipa_offload_conn) {
+		disable_irq_wake(pdata->irq_number);
+		pdata->power_down_type &= ~DWC_ETH_QOS_EMAC_INTR_WAKEUP;
+		return 0;
+	}
 
 	if (!dev || !netif_running(dev)) {
 		DBGPR("<--DWC_ETH_QOS_dev_resume\n");
