@@ -4231,7 +4231,8 @@ static int DWC_ETH_QOS_config_ip4_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l3_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l3_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;
@@ -4300,7 +4301,8 @@ static int DWC_ETH_QOS_config_ip6_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l3_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l3_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;
@@ -4369,7 +4371,8 @@ static int DWC_ETH_QOS_config_tcp_udp_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l4_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l4_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l4_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l4_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;
