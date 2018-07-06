@@ -27,6 +27,9 @@
 #include <linux/ip.h>
 #include <net/ip.h>
 #include <linux/proc_fs.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
+#include <net/addrconf.h>
 
 static char gsb_drv_name[] = "gsb";
 static struct gsb_ctx *__gc = NULL;
@@ -455,6 +458,9 @@ static  ssize_t gsb_read_stats(struct file *file,
 	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
 			"exp embedded packet",
 			 if_info->if_ipa->stats.exp_embedded_packet);
+	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
+			"exp GRO TCP packet",
+			 if_info->if_ipa->stats.gro_enabled_packet);
 	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
 			"sent to ipa",
 			if_info->if_ipa->stats.sent_to_ipa);
@@ -1143,7 +1149,7 @@ static int gsb_bind_if_to_ipa_bridge(struct gsb_if_info *if_info)
 	acquire_wake_source();
 	release_wake_source();
 	return retval;
-	}
+}
 
 static long gsb_ioctl(struct file *filp,
 			unsigned int cmd,
@@ -1156,7 +1162,6 @@ static long gsb_ioctl(struct file *filp,
 	struct gsb_if_info *info = NULL;
 	struct if_ipa_ctx *pif_ipa = NULL;
 	ssize_t result = 0;
-
 
 	if (__gc != NULL)
 	{
@@ -1190,7 +1195,7 @@ static long gsb_ioctl(struct file *filp,
 			break;
 		}
 
-		DEBUG_INFO("iface %s,iface type %d,low wm %d,high wm %d,bw reqd %d, ap_ip %pI4\n\n",
+		DEBUG_INFO("iface %s,iface type %d,low wm %d,high wm %d,bw reqd %d, ap_ip %pI4\n",
 				config->if_name, config->if_type, config->if_low_watermark,
 				config->if_high_watermark, config->bw_reqd_in_mb, &config->ap_ip);
 		// add the config to GSB cache
@@ -1780,15 +1785,15 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 	u32 pkts_to_send, qlen = 0;
 	unsigned char *ptr = NULL;
 	struct sk_buff *pend_skb;
-	struct iphdr *ip_hdr = NULL;
+	struct iphdr *ipheader = NULL;
 	__be32 dst_ip = 0;
+	int off = 0;
 
 	if (NULL == pgsb_ctx)
 	{
 		IPC_ERROR_LOW("Context is NULL\n");
 		return -EFAULT;
 	}
-
 
 	spin_lock_bh(&pgsb_ctx->gsb_lock);
 	if (!IS_ERR_OR_NULL(skb))
@@ -1802,7 +1807,7 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 	}
 	spin_unlock_bh(&pgsb_ctx->gsb_lock);
 
-	if (if_info == NULL)
+	if (if_info == NULL || if_info->pdev == NULL )
 	{
 		IPC_TRACE_LOW("device %s not registered to GSB\n", skb->dev->name);
 		return 0;
@@ -1813,20 +1818,26 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		if_info->if_ipa->stats.total_recv_from_if++;
 	}
 
-	/*if packet is destined for A7 release it to stack*/
-	ip_hdr = (struct iphdr *)skb_network_header(skb);
-	if (ip_hdr != NULL)
-	{
-		dst_ip = ip_hdr->daddr;
+	is_pkt_ipv4 = is_ipv4_pkt(skb);
+	is_pkt_ipv6 = is_ipv6_pkt(skb);
 
-		IPC_TRACE_LOW("packet from %s is destined for IP %pI4 , hex: 0x%X\n", skb->dev->name, &dst_ip, dst_ip);
-		if (dst_ip == if_info->user_config.ap_ip)
+	if (if_info->user_config.ap_ip && is_pkt_ipv4)
+	{
+		/*if packet is destined for A7 release it to stack*/
+		ipheader = (struct iphdr *)skb_network_header(skb);
+		if (ipheader != NULL)
 		{
-			IPC_TRACE_LOW("packet from %s is destined for A7 IP %pI4\n",
-					skb->dev->name, &if_info->user_config.ap_ip );
-			if_info->if_ipa->stats.exp_embedded_packet++;
-			/*releasing to linux stack */
-			return 0;
+			dst_ip = ipheader->daddr;
+			IPC_TRACE_LOW("packet from %s is destined for IP %pI4 , hex: 0x%X\n",
+					skb->dev->name, &dst_ip, dst_ip);
+			if (dst_ip == if_info->user_config.ap_ip)
+			{
+				IPC_TRACE_LOW("packet from %s is destined for A7 IP %pI4\n",
+						skb->dev->name, &if_info->user_config.ap_ip );
+				if_info->if_ipa->stats.exp_embedded_packet++;
+				/*releasing to linux stack */
+				return 0;
+			}
 		}
 	}
 
@@ -1836,8 +1847,16 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		return 0;
 	}
 
-	is_pkt_ipv4 = is_ipv4_pkt(skb);
-	is_pkt_ipv6 = is_ipv6_pkt(skb);
+	/*if GRO is enabled for netdev device, let the TCP packet take exception path*/
+	if ((if_info->pdev->features & NETIF_F_GRO) &&
+		((is_pkt_ipv4 && (ip_hdr(skb)->protocol == IPPROTO_TCP)) ||
+			(is_pkt_ipv6 && (ipv6_find_hdr(skb, &off, -1, NULL, NULL) == IPPROTO_TCP))))
+	{
+		IPC_TRACE_LOW("GRO Packet Recvd\n");
+		if_info->if_ipa->stats.gro_enabled_packet++;
+		/*releasing to linux stack */
+		return 0;
+	}
 
 	/* if if not connected to IPA, ther eis nothing we could do here*/
 	if (unlikely(!if_info->is_connected_to_ipa_bridge))
@@ -1848,6 +1867,7 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		/*releasing to linux stack */
 		return 0;
 	}
+
 	/* If Packet is an IP Packet and non-fragmented then Send it to
 		IPA Bridge Driver*/
 	if (is_non_ip_pkt(skb) ||

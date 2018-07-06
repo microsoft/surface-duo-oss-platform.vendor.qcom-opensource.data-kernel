@@ -64,6 +64,7 @@ struct gsb_ipa_stats
 	uint64_t exp_if_disconnected;
 	uint64_t exp_if_disconnected_fail;
 	uint64_t exp_embedded_packet;
+	uint64_t gro_enabled_packet;
 
 	/* TX Side(DOWNLINK)*/
 	uint64_t tx_send_to_if;
