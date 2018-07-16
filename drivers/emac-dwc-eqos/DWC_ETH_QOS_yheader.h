@@ -1815,7 +1815,8 @@ extern struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx;
 void DWC_ETH_QOS_init_function_ptrs_dev(struct hw_if_struct *);
 void DWC_ETH_QOS_init_function_ptrs_desc(struct desc_if_struct *);
 struct net_device_ops *DWC_ETH_QOS_get_netdev_ops(void);
-struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(void);
+struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(
+			struct DWC_ETH_QOS_prv_data *pdata);
 int DWC_ETH_QOS_poll_mq(struct napi_struct *, int);
 
 void DWC_ETH_QOS_get_pdata(struct DWC_ETH_QOS_prv_data *pdata);

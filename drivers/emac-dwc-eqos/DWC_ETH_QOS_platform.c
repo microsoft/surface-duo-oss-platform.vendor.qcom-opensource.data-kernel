@@ -1052,7 +1052,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 			  (64 * DWC_ETH_QOS_RX_QUEUE_CNT));
 	}
 
-	dev->ethtool_ops = DWC_ETH_QOS_get_ethtool_ops();
+	dev->ethtool_ops = DWC_ETH_QOS_get_ethtool_ops(pdata);
 	DWC_ETH_QOS_dma_desc_stats_init(pdata);
 
 	if (pdata->hw_feat.tso_en) {
