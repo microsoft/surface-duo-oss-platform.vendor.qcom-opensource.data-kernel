@@ -460,7 +460,7 @@ int DWC_ETH_QOS_qmp_mailbox_send_message(struct DWC_ETH_QOS_prv_data *pdata)
 		return ret;
 	}
 
-	EMACINFO("Disabling c-tile power collapse succeded");
+	EMACINFO("Disabling c-tile power collapse succeeded");
 
 	return 0;
 }
@@ -1563,7 +1563,7 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 		return 0;
 	}
 
-	if ((pdata->ipa_enabled && pdata->prv_ipa.ipa_offload_conn)) {
+	if (pdata->ipa_enabled && pdata->prv_ipa.ipa_offload_conn) {
 		pdata->power_down_type |= DWC_ETH_QOS_EMAC_INTR_WAKEUP;
 		enable_irq_wake(pdata->irq_number);
 
