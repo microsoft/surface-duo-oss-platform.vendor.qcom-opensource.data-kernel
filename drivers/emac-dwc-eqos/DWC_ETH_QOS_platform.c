@@ -64,6 +64,8 @@ struct DWC_ETH_QOS_prv_data *gDWC_ETH_QOS_prv_data;
 struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx = {0};
 
 #define INVALID_MODULE_PARAM_VAL 0xFFFFFFFF
+static struct qmp_pkt pkt;
+static char qmp_buf[MAX_QMP_MSG_SIZE + 1] = {0};
 
 int ipa_offload_en = 1;
 module_param(ipa_offload_en, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
@@ -413,6 +415,74 @@ err_out_map_failed:
 	return ret;
 }
 
+int DWC_ETH_QOS_qmp_mailbox_init(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	pdata->qmp_mbox_client = devm_kzalloc(
+	   &pdata->pdev->dev, sizeof(*pdata->qmp_mbox_client), GFP_KERNEL);
+
+	if (IS_ERR(pdata->qmp_mbox_client)){
+		EMACERR("qmp alloc client failed\n");
+		return -1;
+	}
+
+	pdata->qmp_mbox_client->dev = &pdata->pdev->dev;
+	pdata->qmp_mbox_client->tx_block = true;
+	pdata->qmp_mbox_client->tx_tout = 1000;
+	pdata->qmp_mbox_client->knows_txdone = false;
+
+	pdata->qmp_mbox_chan = mbox_request_channel(pdata->qmp_mbox_client, 0);
+
+	if (IS_ERR(pdata->qmp_mbox_chan)) {
+		EMACERR("qmp reuest channel failed\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+int DWC_ETH_QOS_qmp_mailbox_send_message(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	int ret = 0;
+
+	memset(&qmp_buf[0], 0, MAX_QMP_MSG_SIZE + 1);
+
+	snprintf(qmp_buf, MAX_QMP_MSG_SIZE, "{class:ctile, pc:0}");
+
+	pkt.size = ((size_t)strlen(qmp_buf) + 0x3) & ~0x3;
+	pkt.data = qmp_buf;
+
+	ret = mbox_send_message(pdata->qmp_mbox_chan, (void*)&pkt);
+
+	EMACDBG("qmp mbox_send_message ret = %d \n", ret);
+
+	if (ret < 0) {
+		EMACERR("Disabling c-tile power collapse failed\n");
+		return ret;
+	}
+
+	EMACINFO("Disabling c-tile power collapse succeded");
+
+	return 0;
+}
+
+/**
+ *  DWC_ETH_QOS_qmp_mailbox_work - Scheduled from probe
+ *  @work: work_struct
+ */
+void DWC_ETH_QOS_qmp_mailbox_work(struct work_struct *work)
+{
+	struct DWC_ETH_QOS_prv_data *pdata =
+		container_of(work, struct DWC_ETH_QOS_prv_data, qmp_mailbox_work);
+
+	EMACDBG("Enter\n");
+
+	/* Send QMP message to disable c-tile power collapse */
+	DWC_ETH_QOS_qmp_mailbox_send_message(pdata);
+
+	EMACDBG("Exit\n");
+}
+
+
 int DWC_ETH_QOS_enable_ptp_clk(struct device *dev)
 {
 	int ret;
@@ -463,31 +533,45 @@ void DWC_ETH_QOS_disable_ptp_clk(struct device* dev)
 	dwc_eth_qos_res_data.ptp_clk = NULL;
 }
 
-void DWC_ETH_QOS_scale_clks(struct DWC_ETH_QOS_prv_data *pdata, int speed)
+void DWC_ETH_QOS_resume_clks(struct DWC_ETH_QOS_prv_data *pdata)
 {
-	u32 vote_idx = VOTE_IDX_0MBPS;
-
 	EMACDBG("Enter\n");
 
-	if (pdata->bus_hdl) {
-		switch (speed) {
-		case SPEED_1000:
-			vote_idx = VOTE_IDX_1000MBPS;
-			break;
-		case SPEED_100:
-			vote_idx = VOTE_IDX_100MBPS;
-			break;
-		case SPEED_10:
-			vote_idx = VOTE_IDX_10MBPS;
-			break;
-		default:
-			vote_idx = VOTE_IDX_0MBPS;
-			break;
-		}
+	if (dwc_eth_qos_res_data.axi_clk)
+		clk_prepare_enable(dwc_eth_qos_res_data.axi_clk);
 
-		if (msm_bus_scale_client_update_request(
-			  pdata->bus_hdl, vote_idx)) WARN_ON(1);
-	}
+	if (dwc_eth_qos_res_data.ahb_clk)
+		clk_prepare_enable(dwc_eth_qos_res_data.ahb_clk);
+
+	if (dwc_eth_qos_res_data.rgmii_clk)
+		clk_prepare_enable(dwc_eth_qos_res_data.rgmii_clk);
+
+	if (DWC_ETH_QOS_is_phy_link_up(pdata))
+		DWC_ETH_QOS_set_clk_and_bus_config(pdata, pdata->speed);
+	else
+		DWC_ETH_QOS_set_clk_and_bus_config(pdata, SPEED_10);
+
+	pdata->clks_suspended = 0;
+	complete_all(&pdata->clk_enable_done);
+
+	EMACDBG("Exit\n");
+}
+
+void DWC_ETH_QOS_suspend_clks(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	EMACDBG("Enter\n");
+
+	reinit_completion(&pdata->clk_enable_done);
+	pdata->clks_suspended = 1;
+
+	if (dwc_eth_qos_res_data.axi_clk)
+		clk_disable_unprepare(dwc_eth_qos_res_data.axi_clk);
+
+	if (dwc_eth_qos_res_data.ahb_clk)
+		clk_disable_unprepare(dwc_eth_qos_res_data.ahb_clk);
+
+	if (dwc_eth_qos_res_data.rgmii_clk)
+		clk_disable_unprepare(dwc_eth_qos_res_data.rgmii_clk);
 
 	EMACDBG("Exit\n");
 }
@@ -1051,6 +1135,14 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 	/* Set clocks to 10 Mbps config */
 	DWC_ETH_QOS_set_clk_and_bus_config(pdata, SPEED_10);
 
+	if (EMAC_HW_v2_0_0 == pdata->emac_hw_version_type)
+		pdata->disable_ctile_pc = 1;
+
+	if (pdata->disable_ctile_pc && !DWC_ETH_QOS_qmp_mailbox_init(pdata)){
+		INIT_WORK(&pdata->qmp_mailbox_work, DWC_ETH_QOS_qmp_mailbox_work);
+		queue_work(system_wq, &pdata->qmp_mailbox_work);
+	}
+
 	EMACDBG("<-- DWC_ETH_QOS_configure_netdevice\n");
 
 	return 0;
@@ -1353,6 +1445,9 @@ int DWC_ETH_QOS_remove(struct platform_device *pdev)
 		pdata->phy_irq = 0;
 	}
 
+	if (pdata->phy_intr_en && pdata->phy_irq)
+		cancel_work_sync(&pdata->emac_phy_work);
+
 	if (pdata->hw_feat.sma_sel == 1)
 		DWC_ETH_QOS_mdio_unregister(dev);
 
@@ -1471,6 +1566,13 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 	if ((pdata->ipa_enabled && pdata->prv_ipa.ipa_offload_conn)) {
 		pdata->power_down_type |= DWC_ETH_QOS_EMAC_INTR_WAKEUP;
 		enable_irq_wake(pdata->irq_number);
+
+		/* Set PHY intr as wakeup-capable to handle change in PHY link status after suspend */
+		if (pdata->phy_intr_en && pdata->phy_irq && pdata->phy_wol_wolopts) {
+			pmt_flags |= DWC_ETH_QOS_PHY_INTR_WAKEUP;
+			enable_irq_wake(pdata->phy_irq);
+		}
+
 		return 0;
 	}
 
@@ -1489,15 +1591,11 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 	if (pdata->phy_intr_en && pdata->phy_irq && pdata->phy_wol_wolopts)
 		pmt_flags |= DWC_ETH_QOS_PHY_INTR_WAKEUP;
 
-	if (pdata->ipa_enabled && !pdata->prv_ipa.ipa_offload_susp)
-		pmt_flags |= DWC_ETH_QOS_EMAC_INTR_WAKEUP;
-
 	ret = DWC_ETH_QOS_powerdown(dev, pmt_flags, DWC_ETH_QOS_DRIVER_CONTEXT);
 
-	EMACDBG("<--DWC_ETH_QOS_suspend ret = %d\n", ret);
+	DWC_ETH_QOS_suspend_clks(pdata);
 
-	if (pdata->ipa_enabled)
-		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_SUSPEND);
+	EMACDBG("<--DWC_ETH_QOS_suspend ret = %d\n", ret);
 
 	return ret;
 }
@@ -1534,23 +1632,38 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 	if (of_device_is_compatible(pdev->dev.of_node, "qcom,emac-smmu-embedded"))
 		return 0;
 
-	if (pdata->ipa_enabled && pdata->prv_ipa.ipa_offload_conn) {
-		disable_irq_wake(pdata->irq_number);
-		pdata->power_down_type &= ~DWC_ETH_QOS_EMAC_INTR_WAKEUP;
-		return 0;
-	}
-
 	if (!dev || !netif_running(dev)) {
 		DBGPR("<--DWC_ETH_QOS_dev_resume\n");
 		return -EINVAL;
 	}
 
-	DWC_ETH_QOS_scale_clks(pdata, pdata->speed);
+	if (pdata->ipa_enabled && pdata->prv_ipa.ipa_offload_conn) {
+		if (pdata->power_down_type & DWC_ETH_QOS_EMAC_INTR_WAKEUP) {
+			disable_irq_wake(pdata->irq_number);
+			pdata->power_down_type &= ~DWC_ETH_QOS_EMAC_INTR_WAKEUP;
+		}
+
+		if (pdata->power_down_type & DWC_ETH_QOS_PHY_INTR_WAKEUP) {
+			disable_irq_wake(pdata->phy_irq);
+			pdata->power_down_type &= ~DWC_ETH_QOS_PHY_INTR_WAKEUP;
+		}
+
+		/* Wakeup reason can be PHY link event or a RX packet */
+		/* Set a wakeup event to ensure enough time for processing */
+		pm_wakeup_event(&pdev->dev, 5000);
+		return 0;
+	}
+
+	DWC_ETH_QOS_resume_clks(pdata);
 
 	ret = DWC_ETH_QOS_powerup(dev, DWC_ETH_QOS_DRIVER_CONTEXT);
 
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
+
+	/* Wakeup reason can be PHY link event or a RX packet */
+	/* Set a wakeup event to ensure enough time for processing */
+	pm_wakeup_event(&pdev->dev, 5000);
 
 	DBGPR("<--DWC_ETH_QOS_resume\n");
 
