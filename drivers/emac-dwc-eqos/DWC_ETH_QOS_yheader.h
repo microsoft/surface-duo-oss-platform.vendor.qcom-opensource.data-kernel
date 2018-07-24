@@ -120,6 +120,9 @@
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
 #include <linux/err.h>
+#include <linux/mailbox_client.h>
+#include <linux/mailbox/qmp.h>
+#include <linux/mailbox_controller.h>
 
 /* QOS Version Control Macros */
 /* #define DWC_ETH_QOS_VER_4_0 */
@@ -642,6 +645,8 @@
 #define MII_100_LOW_SVS_CLK_FREQ  (25 * 1000 * 1000UL)
 #define MII_10_LOW_SVS_CLK_FREQ  (2.5 * 1000 * 1000UL)
 
+#define MAX_QMP_MSG_SIZE 96
+
 /**
  * enum emac_hw_core_version - EMAC hardware core version type
 * @EMAC_HW_None: EMAC hardware version not defined
@@ -665,7 +670,6 @@ enum emac_core_version {
 	EMAC_HW_v2_3_1 = 7,
 	EMAC_HW_v2_3_2 = 8
 };
-
 
 /* C data types typedefs */
 typedef unsigned short BOOL;
@@ -1559,6 +1563,8 @@ struct DWC_ETH_QOS_prv_data {
 	uint32_t bus_hdl;
 	u32 rgmii_clk_rate;
 	unsigned int vote_idx;
+	int clks_suspended;
+	struct completion clk_enable_done;
 
 #ifdef PER_CH_INT
 	bool per_ch_intr_en;
@@ -1761,6 +1767,15 @@ struct DWC_ETH_QOS_prv_data {
 	unsigned int io_macro_phy_intf;
 	int phy_irq;
 	enum emac_core_version emac_hw_version_type;
+
+	/* QMP message for disabling ctile power collapse while XO shutdown */
+	struct mbox_chan *qmp_mbox_chan;
+	struct mbox_client *qmp_mbox_client;
+	struct work_struct qmp_mailbox_work;
+	int disable_ctile_pc;
+
+	/* Work struct for handling phy interrupt */
+	struct work_struct emac_phy_work;
 };
 
 typedef enum {
@@ -1809,7 +1824,6 @@ void DWC_ETH_QOS_get_pdata(struct DWC_ETH_QOS_prv_data *pdata);
 int create_debug_files(void);
 void remove_debug_files(void);
 
-void DWC_ETH_QOS_scale_clks(struct DWC_ETH_QOS_prv_data *pdata, int speed);
 bool DWC_ETH_QOS_is_phy_link_up(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdata, int speed);
 int DWC_ETH_QOS_mdio_register(struct net_device *dev);
@@ -1856,7 +1870,9 @@ bool DWC_ETH_QOS_eee_init(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_handle_eee_interrupt(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_disable_eee_mode(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_enable_eee_mode(struct DWC_ETH_QOS_prv_data *pdata);
-
+void DWC_ETH_QOS_suspend_clks(struct DWC_ETH_QOS_prv_data *pdata);
+void DWC_ETH_QOS_resume_clks(struct DWC_ETH_QOS_prv_data *pdata);
+void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdata, int speed);
 #ifdef DWC_ETH_QOS_CONFIG_PGTEST
 irqreturn_t DWC_ETH_QOS_ISR_SW_DWC_ETH_QOS_pg(int irq, void *dev_data);
 void DWC_ETH_QOS_default_confs(struct DWC_ETH_QOS_prv_data *pdata);
@@ -1896,6 +1912,7 @@ void DWC_ETH_QOS_deregister_per_ch_intr(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_dis_en_ch_intr(struct DWC_ETH_QOS_prv_data *pdata,
 								bool enable);
 #endif
+void DWC_ETH_QOS_defer_phy_isr_work(struct work_struct *work);
 irqreturn_t DWC_ETH_QOS_PHY_ISR(int irq, void *dev_id);
 
 void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata);
