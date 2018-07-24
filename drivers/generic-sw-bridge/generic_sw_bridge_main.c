@@ -982,7 +982,8 @@ static void gsb_recv_dl_dp(void *priv, struct sk_buff *skb)
 		pgsb_ctx->inactivity_timer_cancelled_cnt++;
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
 	}
-
+	// mark the packet as fast forwarded ( for usb hostmode optimizations)
+	skb->fast_forwarded =1;
 	if (dev_queue_xmit(skb) != 0)
 	{
 		IPC_ERROR_LOW("could not forward the packet\n");
