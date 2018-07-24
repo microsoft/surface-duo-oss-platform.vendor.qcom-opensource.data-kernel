@@ -24,6 +24,7 @@
 static void *ipc_gsb_log_ctxt;
 static void *ipc_gsb_log_ctxt_low;
 static bool dynamic_debug = false;
+static atomic_t unload_flag = ATOMIC_INIT(0);
 
 
 /*
