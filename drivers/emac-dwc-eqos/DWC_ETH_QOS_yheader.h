@@ -554,7 +554,7 @@
 /* for EEE */
 #define DWC_ETH_QOS_DEFAULT_LPI_LS_TIMER 0x3E8 /* 1000 in decimal */
 #define DWC_ETH_QOS_DEFAULT_LPI_TWT_TIMER 0x11 /* Typical 17uS */
-#define DWC_ETH_QOS_DEFAULT_LPI_LPIET_TIMER 125 /* 8*125uS=1000uS=1mS*/
+#define DWC_ETH_QOS_DEFAULT_LPI_LPIET_TIMER 0x1FFFF /* 131071uS=131.071mS */
 
 #define DWC_ETH_QOS_DEFAULT_LPI_TIMER 1000 /* LPI Tx local expiration time in msec */
 #define DWC_ETH_QOS_LPI_TIMER(x) (jiffies + msecs_to_jiffies(x))
@@ -621,6 +621,10 @@
 #define EMAC_VREG_RGMII_IO_PADS_NAME "vreg_rgmii_io_pads"
 #define EMAC_GPIO_PHY_INTR_REDIRECT_NAME "qcom,phy-intr-redirect"
 #define EMAC_GPIO_PHY_RESET_NAME "qcom,phy-reset"
+
+/* The values used in gpio_set_value() are boolean, zero for low, nonzero for high.*/
+#define PHY_RESET_GPIO_LOW  0
+#define PHY_RESET_GPIO_HIGH  1
 
 #define VOTE_IDX_0MBPS 0
 #define VOTE_IDX_10MBPS 1
@@ -1498,6 +1502,9 @@ struct DWC_ETH_QOS_res_data {
 #endif
 
 	/* GPIOs */
+	bool is_gpio_phy_intr_redirect;
+	bool is_gpio_phy_reset;
+	bool is_pinctrl_names;
 	int gpio_phy_intr_redirect;
 	int gpio_phy_reset;
 
@@ -1776,6 +1783,11 @@ struct DWC_ETH_QOS_prv_data {
 
 	/* Work struct for handling phy interrupt */
 	struct work_struct emac_phy_work;
+
+	/* Context variabled used for debugger */
+	struct iommu_domain *iommu_domain;
+	unsigned int *emac_reg_base_address;
+	unsigned int *rgmii_reg_base_address;
 };
 
 typedef enum {
@@ -1798,7 +1810,7 @@ struct emac_emb_smmu_cb_ctx {
 	struct platform_device *pdev_master;
 	struct platform_device *smmu_pdev;
 	struct dma_iommu_mapping *mapping;
-	struct iommu_domain *iommu;
+	struct iommu_domain *iommu_domain;
 	u32 va_start;
 	u32 va_size;
 	u32 va_end;
@@ -1815,7 +1827,8 @@ extern struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx;
 void DWC_ETH_QOS_init_function_ptrs_dev(struct hw_if_struct *);
 void DWC_ETH_QOS_init_function_ptrs_desc(struct desc_if_struct *);
 struct net_device_ops *DWC_ETH_QOS_get_netdev_ops(void);
-struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(void);
+struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(
+			struct DWC_ETH_QOS_prv_data *pdata);
 int DWC_ETH_QOS_poll_mq(struct napi_struct *, int);
 
 void DWC_ETH_QOS_get_pdata(struct DWC_ETH_QOS_prv_data *pdata);
@@ -1904,6 +1917,25 @@ void dump_rgmii_io_macro_registers(void);
 #define EMAC_SDCC_HC_REG_DDR_CONFIG_POR 0x00000000
 #define EMAC_SDCC_HC_REG_DLL_CONFIG_2_POR 0x00200000
 #define EMAC_SDCC_USR_CTL_POR 0x00000000
+
+#define EMAC_MDC "dev-emac-mdc"
+#define EMAC_MDIO "dev-emac-mdio"
+
+#define EMAC_RGMII_TXD0 "dev-emac-rgmii_txd0_state"
+#define EMAC_RGMII_TXD1 "dev-emac-rgmii_txd1_state"
+#define EMAC_RGMII_TXD2 "dev-emac-rgmii_txd2_state"
+#define EMAC_RGMII_TXD3 "dev-emac-rgmii_txd3_state"
+#define EMAC_RGMII_TXC "dev-emac-rgmii_txc_state"
+#define EMAC_RGMII_TX_CTL "dev-emac-rgmii_tx_ctl_state"
+
+#define EMAC_RGMII_RXD0 "dev-emac-rgmii_rxd0_state"
+#define EMAC_RGMII_RXD1 "dev-emac-rgmii_rxd1_state"
+#define EMAC_RGMII_RXD2 "dev-emac-rgmii_rxd2_state"
+#define EMAC_RGMII_RXD3 "dev-emac-rgmii_rxd3_state"
+#define EMAC_RGMII_RXC "dev-emac-rgmii_rxc_state"
+#define EMAC_RGMII_RX_CTL "dev-emac-rgmii_rx_ctl_state"
+#define EMAC_PHY_RESET "dev-emac-phy_reset_state"
+#define EMAC_PHY_INTR "dev-emac-phy_intr"
 
 #ifdef PER_CH_INT
 void DWC_ETH_QOS_handle_DMA_Int(struct DWC_ETH_QOS_prv_data *pdata, int chinx, bool);
