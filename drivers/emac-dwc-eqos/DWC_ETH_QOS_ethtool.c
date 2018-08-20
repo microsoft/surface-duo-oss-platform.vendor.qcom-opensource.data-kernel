@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -367,6 +367,9 @@ static const struct DWC_ETH_QOS_stats DWC_ETH_QOS_mmc[] = {
 
 #define DWC_ETH_QOS_MMC_STATS_LEN ARRAY_SIZE(DWC_ETH_QOS_mmc)
 
+static const struct ethtool_ops DWC_ETH_QOS_ethtool_no_ops = {
+};
+
 static const struct ethtool_ops DWC_ETH_QOS_ethtool_ops = {
 	.get_link = ethtool_op_get_link,
 	.get_pauseparam = DWC_ETH_QOS_get_pauseparam,
@@ -385,9 +388,14 @@ static const struct ethtool_ops DWC_ETH_QOS_ethtool_ops = {
 #endif /* end of DWC_ETH_QOS_CONFIG_PTP */
 };
 
-struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(void)
+struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(
+			struct DWC_ETH_QOS_prv_data *pdata)
 {
-	return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_ops;
+	/* No phy registered hence no ethtool operations supported */
+	if (pdata->always_on_phy)
+		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_no_ops;
+	else
+		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_ops;
 }
 
 /*!
@@ -731,7 +739,17 @@ static int DWC_ETH_QOS_setsettings(struct net_device *dev,
 		spin_unlock_irq(&pdata->lock);
 	} else {
 		mutex_lock(&pdata->mlock);
-		ret = phy_ethtool_sset(pdata->phydev, cmd);
+
+		/* Half duplex is not supported */
+		if (cmd->duplex != DUPLEX_FULL) {
+			ret = -EINVAL;
+		} else {
+			/* Advertise all supported speeds when autoneg is enabled */
+			if (cmd->autoneg == AUTONEG_ENABLE)
+				cmd->advertising = pdata->phydev->supported;
+
+			ret = phy_ethtool_sset(pdata->phydev, cmd);
+		}
 		mutex_unlock(&pdata->mlock);
 	}
 

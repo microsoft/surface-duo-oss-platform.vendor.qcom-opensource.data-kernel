@@ -534,6 +534,10 @@ void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdata, int 
 		case SPEED_10:
 			pdata->vote_idx = VOTE_IDX_10MBPS;
 			break;
+		case 0:
+			pdata->vote_idx = VOTE_IDX_0MBPS;
+			pdata->rgmii_clk_rate = 0;
+			break;
 	}
 
 	if (pdata->bus_hdl) {
@@ -571,7 +575,8 @@ static inline int DWC_ETH_QOS_configure_io_macro_dll_settings(
 * default DLL setting should be used.
 */
 #ifndef DWC_ETH_QOS_EMULATION_PLATFORM
-	DWC_ETH_QOS_rgmii_io_macro_dll_reset();
+	DWC_ETH_QOS_rgmii_io_macro_dll_reset(pdata);
+
 	/* For RGMII ID mode with internal delay*/
 	if (pdata->io_macro_phy_intf == RGMII_MODE && !pdata->io_macro_tx_mode_non_id) {
 		EMACDBG("Initialize and configure SDCC DLL\n");
@@ -745,7 +750,7 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 			}
 		}
 
-		if (!pdata->oldlink) {
+		if (!pdata->oldlink || (pdata->oldlink == -1)) {
 			new_state = 1;
 			pdata->oldlink = 1;
 			netif_carrier_on(dev);

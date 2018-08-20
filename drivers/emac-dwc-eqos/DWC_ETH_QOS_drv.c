@@ -527,8 +527,19 @@ static void DWC_ETH_QOS_restart_dev(struct DWC_ETH_QOS_prv_data *pdata,
 	struct desc_if_struct *desc_if = &pdata->desc_if;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct DWC_ETH_QOS_rx_queue *rx_queue = NULL;
+	int reg_val;
 
 	DBGPR("-->DWC_ETH_QOS_restart_dev\n");
+
+	EMACERR("FBE received for queue = %d\n", qinx);
+	DMA_CHTDR_CURTDESAPTR_UDFRD(qinx, reg_val);
+	EMACERR("EMAC_DMA_CHi_CURRENT_APP_TXDESC = %#x\n", reg_val);
+	DMA_CHRDR_CURRDESAPTR_UDFRD(qinx, reg_val);
+	EMACERR("EMAC_DMA_CHi_CURRENT_APP_RXDESC = %#x\n", reg_val);
+	DMA_CHTBAR_CURTBUFAPTR_UDFRD(qinx, reg_val);
+	EMACERR("EMAC_DMA_CHi_CURRENT_APP_TXBUFFER = %#x\n", reg_val);
+	DMA_CHRBAR_CURRBUFAPTR_UDFRD(qinx, reg_val);
+	EMACERR("EMAC_DMA_CHi_CURRENT_APP_RXBUFFER = %#x\n", reg_val);
 
 	netif_stop_subqueue(pdata->dev, qinx);
 
@@ -4257,7 +4268,8 @@ static int DWC_ETH_QOS_config_ip4_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l3_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l3_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;
@@ -4326,7 +4338,8 @@ static int DWC_ETH_QOS_config_ip6_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l3_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l3_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;
@@ -4395,7 +4408,8 @@ static int DWC_ETH_QOS_config_tcp_udp_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l4_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l4_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l4_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l4_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;
