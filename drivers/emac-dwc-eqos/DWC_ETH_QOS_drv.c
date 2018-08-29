@@ -1952,7 +1952,7 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct desc_if_struct *desc_if = &pdata->desc_if;
-	int ret = 0;
+	int ret = 0, qinx = 0;
 
 	DBGPR("-->DWC_ETH_QOS_close\n");
 
@@ -1965,7 +1965,15 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 		phy_stop(pdata->phydev);
 
 #ifndef DWC_ETH_QOS_CONFIG_PGTEST
+	/* Stop SW TX before DMA TX in HW */
 	netif_tx_disable(dev);
+	DWC_ETH_QOS_stop_all_ch_tx_dma(pdata);
+
+	/* Disable MAC TX/RX */
+	hw_if->stop_mac_tx_rx();
+
+	/* Stop SW RX after DMA RX in HW */
+	DWC_ETH_QOS_stop_all_ch_rx_dma(pdata);
 	DWC_ETH_QOS_all_ch_napi_disable(pdata);
 
 	if (pdata->ipa_enabled) {
@@ -1973,8 +1981,21 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 	}
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
 
+#ifdef DWC_ETH_QOS_TXPOLLING_MODE_ENABLE
+    for (qinx = 0; qinx < DWC_ETH_QOS_TX_QUEUE_CNT; qinx++) {
+		/* check for tx descriptor status */
+		DWC_ETH_QOS_tx_interrupt(pdata->dev, pdata, qinx);
+    }
+#endif
+
+    for (qinx = 0; qinx < DWC_ETH_QOS_RX_QUEUE_CNT; qinx++)
+        (void)pdata->clean_rx(pdata, NAPI_PER_QUEUE_POLL_BUDGET, qinx);
+
 	/* issue software reset to device */
 	hw_if->exit();
+
+    DWC_ETH_QOS_restart_phy(pdata);
+
 	desc_if->tx_free_mem(pdata);
 	desc_if->rx_free_mem(pdata);
 #ifdef PER_CH_INT
@@ -4268,7 +4289,8 @@ static int DWC_ETH_QOS_config_ip4_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l3_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l3_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;
@@ -4337,7 +4359,8 @@ static int DWC_ETH_QOS_config_ip6_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l3_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l3_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l3_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;
@@ -4406,7 +4429,8 @@ static int DWC_ETH_QOS_config_tcp_udp_filters(struct net_device *dev,
 			   sizeof(struct DWC_ETH_QOS_l3_l4_filter)))
 		return -EFAULT;
 
-	if ((l_l4_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num) {
+	if ((l_l4_filter.filter_no + 1) > pdata->hw_feat.l3l4_filter_num ||
+		l_l4_filter.filter_no > (UINT_MAX - pdata->hw_feat.l3l4_filter_num)) {
 		dev_alert(&pdata->pdev->dev, "%d filter is not supported in the HW\n",
 			  l_l4_filter.filter_no);
 		return DWC_ETH_QOS_NO_HW_SUPPORT;

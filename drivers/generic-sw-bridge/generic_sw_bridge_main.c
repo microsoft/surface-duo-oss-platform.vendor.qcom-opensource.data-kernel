@@ -229,18 +229,26 @@ static int suspend_all_bridged_interfaces(void)
 		if (!curr->is_ipa_bridge_suspended)
 		{
 			spin_unlock_bh(&pgsb_ctx->gsb_lock);
-			if (ipa_bridge_suspend(curr->handle) != 0)
+			if ((atomic_read(&unload_flag) == 0))
 			{
-				DEBUG_ERROR("failed to suspend if %s\n", curr->if_name);
-				return -EFAULT;
+				if (ipa_bridge_suspend(curr->handle) != 0)
+				{
+					DEBUG_ERROR("failed to suspend if %s\n", curr->if_name);
+					return -EFAULT;
+				}
+				else
+				{
+					IPC_INFO_LOW("if %s suspended\n", curr->if_name);
+					spin_lock_bh(&pgsb_ctx->gsb_lock);
+					curr->is_ipa_bridge_suspended = true;
+					curr->if_ipa->stats.ipa_suspend_cnt++;
+					spin_unlock_bh(&pgsb_ctx->gsb_lock);
+				}
 			}
 			else
 			{
-				IPC_INFO_LOW("if %s suspended\n", curr->if_name);
-				spin_lock_bh(&pgsb_ctx->gsb_lock);
-				curr->is_ipa_bridge_suspended = true;
-				curr->if_ipa->stats.ipa_suspend_cnt++;
-				spin_unlock_bh(&pgsb_ctx->gsb_lock);
+				DEBUG_TRACE("GSB Unloading, Skipping Suspend\n");
+				return 0;
 			}
 		}
 		else
@@ -284,7 +292,14 @@ static void inactivity_timer_cb(unsigned long data)
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
 
 		IPC_INFO_LOW("no data activity for 200 ms..suspending bridged interfaces\n");
-		schedule_delayed_work(&if_suspend_wq, 0);
+		if((atomic_read(&unload_flag) == 0))
+		{
+			schedule_delayed_work(&if_suspend_wq, 0);
+		}
+		else
+		{
+			DEBUG_TRACE("GSB Unloading..no need to suspend\n");
+		}
 		return;
 	}
 	spin_unlock_bh(&pgsb_ctx->gsb_lock);
@@ -2235,7 +2250,9 @@ static void __exit gsb_exit_module(void)
 
 	/*lets delete the if  from cache so no more packets are
 		processed from stack*/
-	cancel_delayed_work_sync(&if_suspend_wq);
+	if(cancel_delayed_work_sync(&if_suspend_wq))
+		pr_info("Suspend task is pending\n");
+
 	cleanup_entries_from_ht();
 	destroy_workqueue(gsb_wq);
 	/*

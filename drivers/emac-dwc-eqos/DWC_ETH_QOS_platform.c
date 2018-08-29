@@ -79,7 +79,7 @@ MODULE_PARM_DESC(phy_intf, "phy interface [rgmii, rmii, mii]");
 static uint phy_intf_bypass_mode = INVALID_MODULE_PARAM_VAL;
 module_param(phy_intf_bypass_mode, uint, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(phy_intf_bypass_mode,
-		 "Phy interface bypass mode [0-Non-ID, 1-ID]");
+		 "Phy interface bypass mode [1-Non-ID, 0-ID]");
 
 void DWC_ETH_QOS_init_all_fptrs(struct DWC_ETH_QOS_prv_data *pdata)
 {
@@ -1288,6 +1288,13 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 
 	/* store emac hw version to pdata*/
 	pdata->emac_hw_version_type = dwc_eth_qos_res_data.emac_hw_version_type;
+
+	/* Scale the clocks to 10Mbps speed */
+	pdata->speed = SPEED_10;
+	DWC_ETH_QOS_set_clk_and_bus_config(pdata, SPEED_10);
+
+	DWC_ETH_QOS_set_rgmii_func_clk_en();
+
 	/* issue software reset to device */
 	hw_if->exit();
 	/* IEMAC: Find and Read the IRQ from DTS */
@@ -1372,7 +1379,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 			 continue;
 
 		netif_napi_add(dev, &rx_queue->napi, DWC_ETH_QOS_poll_mq,
-			  (64 * DWC_ETH_QOS_RX_QUEUE_CNT));
+			  (NAPI_PER_QUEUE_POLL_BUDGET * DWC_ETH_QOS_RX_QUEUE_CNT));
 	}
 
 	dev->ethtool_ops = DWC_ETH_QOS_get_ethtool_ops(pdata);
@@ -1454,9 +1461,6 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		netif_carrier_off(dev);
 		dev_alert(&pdev->dev, "carrier off till LINK is up\n");
 	}
-
-	if (!pdata->always_on_phy)
-		DWC_ETH_QOS_set_clk_and_bus_config(pdata, SPEED_10);
 
 	if (EMAC_HW_v2_0_0 == pdata->emac_hw_version_type)
 		pdata->disable_ctile_pc = 1;

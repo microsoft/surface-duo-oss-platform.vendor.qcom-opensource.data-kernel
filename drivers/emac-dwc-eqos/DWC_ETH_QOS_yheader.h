@@ -314,6 +314,13 @@
 #define DWC_ETH_QOS_PHY_DEBUG_PORT_ADDR_OFFSET 0x1d
 #define DWC_ETH_QOS_PHY_DEBUG_PORT_DATAPORT 0x1e
 
+/* Hibernation mode in AR8035 */
+#define DWC_ETH_QOS_PHY_HIB_CTRL 0x0B
+#define DWC_ETH_QOS_PHY_HIB_CTRL_PS_HIB_EN_WR_MASK  0xFFFF7FFF
+#define DWC_ETH_QOS_PHY_HIB_CTRL_PS_HIB_EN_MASK  0x1
+
+
+
 #define LINK_DOWN_STATE 0x800
 #define LINK_UP_STATE 0x400
 #define PHY_WOL 0x1
@@ -650,6 +657,7 @@
 #define MII_10_LOW_SVS_CLK_FREQ  (2.5 * 1000 * 1000UL)
 
 #define MAX_QMP_MSG_SIZE 96
+#define NAPI_PER_QUEUE_POLL_BUDGET 64
 
 /**
  * enum emac_hw_core_version - EMAC hardware core version type
@@ -663,17 +671,17 @@
 * @EMAC_HW_v2_3_1: EMAC core version 2.3.1. & chips is SM6150(Talos)
 * @EMAC_HW_v2_3_2: EMAC core version 2.3.2. & chips is SDX55(Huracan)
 */
-enum emac_core_version {
-	EMAC_HW_None = 0,
-	EMAC_HW_v2_0_0 = 1,
-	EMAC_HW_v2_1_0 = 2,
-	EMAC_HW_v2_1_1 = 3,
-	EMAC_HW_v2_1_2 = 4,
-	EMAC_HW_v2_2_0 = 5,
-	EMAC_HW_v2_3_0 = 6,
-	EMAC_HW_v2_3_1 = 7,
-	EMAC_HW_v2_3_2 = 8
-};
+
+#define EMAC_HW_None 0
+#define EMAC_HW_v2_0_0 1
+#define EMAC_HW_v2_1_0 2
+#define EMAC_HW_v2_1_1 3
+#define EMAC_HW_v2_1_2 4
+#define EMAC_HW_v2_2_0 5
+#define EMAC_HW_v2_3_0 6
+#define EMAC_HW_v2_3_1 7
+#define EMAC_HW_v2_3_2 8
+#define EMAC_HW_vMAX 9
 
 /* C data types typedefs */
 typedef unsigned short BOOL;
@@ -1519,7 +1527,7 @@ struct DWC_ETH_QOS_res_data {
 	struct clk *ahb_clk;
 	struct clk *rgmii_clk;
 	struct clk *ptp_clk;
-	enum emac_core_version emac_hw_version_type;
+	unsigned int emac_hw_version_type;
 	u32 bit_mask;
 	bool is_bit_mask;
 };
@@ -1773,7 +1781,7 @@ struct DWC_ETH_QOS_prv_data {
 	unsigned int io_macro_tx_mode_non_id;
 	unsigned int io_macro_phy_intf;
 	int phy_irq;
-	enum emac_core_version emac_hw_version_type;
+	unsigned int emac_hw_version_type;
 
 	/* QMP message for disabling ctile power collapse while XO shutdown */
 	struct mbox_chan *qmp_mbox_chan;
@@ -1907,16 +1915,9 @@ int DWC_ETH_QOS_rgmii_io_macro_sdcdc_enable_lp_mode(void);
 int DWC_ETH_QOS_rgmii_io_macro_sdcdc_config(void);
 int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *);
 int DWC_ETH_QOS_sdcc_set_bypass_mode(void);
-int DWC_ETH_QOS_rgmii_io_macro_dll_reset(void);
+int DWC_ETH_QOS_rgmii_io_macro_dll_reset(struct DWC_ETH_QOS_prv_data *pdata);
 void dump_rgmii_io_macro_registers(void);
-
-/* POR values for IO macro and DLL registers */
-#define EMAC_RGMII_IO_MACRO_CONFIG_POR 0x40C01343
-#define EMAC_RGMII_IO_MACRO_CONFIG_2_POR 0x00002060
-#define EMAC_SDCC_HC_REG_DLL_CONFIG_POR 0x2004642C
-#define EMAC_SDCC_HC_REG_DDR_CONFIG_POR 0x00000000
-#define EMAC_SDCC_HC_REG_DLL_CONFIG_2_POR 0x00200000
-#define EMAC_SDCC_USR_CTL_POR 0x00000000
+int DWC_ETH_QOS_set_rgmii_func_clk_en(void);
 
 #define EMAC_MDC "dev-emac-mdc"
 #define EMAC_MDIO "dev-emac-mdio"
