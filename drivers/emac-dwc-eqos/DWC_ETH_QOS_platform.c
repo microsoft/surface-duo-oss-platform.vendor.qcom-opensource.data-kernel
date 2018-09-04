@@ -49,6 +49,8 @@
 #include "DWC_ETH_QOS_yheader.h"
 #include "DWC_ETH_QOS_ipa.h"
 
+void *ipc_emac_log_ctxt;
+
 #define EMAC_DEFAULT_BIT_ADDRESSING 32
 #define EMAC_36_BIT_ADDRESSING 36
 #define EMAC_64_BIT_ADDRESSING 64
@@ -2170,6 +2172,12 @@ static int DWC_ETH_QOS_init_module(void)
 		return ret;
 	}
 
+	ipc_emac_log_ctxt = ipc_log_context_create(IPCLOG_STATE_PAGES,"emac", 0);
+	if (!ipc_emac_log_ctxt)
+		pr_err("Error creating logging context for emac\n");
+	else
+		pr_info("IPC logging has been enabled for emac\n");
+
 #ifdef DWC_ETH_QOS_CONFIG_DEBUGFS
 	create_debug_files();
 #endif
@@ -2197,6 +2205,9 @@ static void __exit DWC_ETH_QOS_exit_module(void)
 #endif
 
 	platform_driver_unregister(&DWC_ETH_QOS_plat_drv);
+
+	if (ipc_emac_log_ctxt != NULL)
+		ipc_log_context_destroy(ipc_emac_log_ctxt);
 
 	DBGPR("<--DWC_ETH_QOS_exit_module\n");
 }
