@@ -1346,7 +1346,7 @@ struct DWC_ETH_QOS_mmc_counters {
 	unsigned long mmc_rx_ipv4_hderr;
 	unsigned long mmc_rx_ipv4_nopay;
 	unsigned long mmc_rx_ipv4_frag;
-	unsigned long mmc_rx_ipv4_udsbl;
+	unsigned long mmc_rx_ipv4_udp_csum_disable;
 
 	/* IPV6 */
 	unsigned long mmc_rx_ipv6_gd_octets;
@@ -1355,18 +1355,18 @@ struct DWC_ETH_QOS_mmc_counters {
 
 	/* Protocols */
 	unsigned long mmc_rx_udp_gd;
-	unsigned long mmc_rx_udp_err;
+	unsigned long mmc_rx_udp_csum_err;
 	unsigned long mmc_rx_tcp_gd;
-	unsigned long mmc_rx_tcp_err;
+	unsigned long mmc_rx_tcp_csum_err;
 	unsigned long mmc_rx_icmp_gd;
-	unsigned long mmc_rx_icmp_err;
+	unsigned long mmc_rx_icmp_csum_err;
 
 	/* IPv4 */
 	unsigned long mmc_rx_ipv4_gd_octets;
 	unsigned long mmc_rx_ipv4_hderr_octets;
 	unsigned long mmc_rx_ipv4_nopay_octets;
 	unsigned long mmc_rx_ipv4_frag_octets;
-	unsigned long mmc_rx_ipv4_udsbl_octets;
+	unsigned long mmc_rx_ipv4_udp_csum_disable_octets;
 
 	/* IPV6 */
 	unsigned long mmc_rx_ipv6_gd;
@@ -1375,11 +1375,15 @@ struct DWC_ETH_QOS_mmc_counters {
 
 	/* Protocols */
 	unsigned long mmc_rx_udp_gd_octets;
-	unsigned long mmc_rx_udp_err_octets;
+	unsigned long mmc_rx_udp_csum_err_octets;
 	unsigned long mmc_rx_tcp_gd_octets;
-	unsigned long mmc_rx_tcp_err_octets;
+	unsigned long mmc_rx_tcp_csum_err_octets;
 	unsigned long mmc_rx_icmp_gd_octets;
-	unsigned long mmc_rx_icmp_err_octets;
+	unsigned long mmc_rx_icmp_csum_err_octets;
+
+	/* LPI Rx and Tx Transition counters */
+	unsigned long mmc_emac_rx_lpi_tran_cntr;
+	unsigned long mmc_emac_tx_lpi_tran_cntr;
 };
 
 struct DWC_ETH_QOS_extra_stats {
@@ -1536,7 +1540,6 @@ struct DWC_ETH_QOS_prv_ipa_data {
 	phys_addr_t uc_db_rx_addr;
 	phys_addr_t uc_db_tx_addr;
 	u32 ipa_client_hndl;
-	struct dentry *debugfs_dir;
 
 	/* IPA state variables */
 	/* State of EMAC HW initilization */
@@ -1563,6 +1566,10 @@ struct DWC_ETH_QOS_prv_ipa_data {
 	unsigned short vlan_id;
 
 	struct mutex ipa_lock;
+
+	struct dentry *debugfs_ipa_stats;
+	struct dentry *debugfs_dma_stats;
+	struct dentry *debugfs_suspend_ipa_offload;
 };
 
 struct DWC_ETH_QOS_prv_data {
@@ -1573,6 +1580,9 @@ struct DWC_ETH_QOS_prv_data {
 	struct DWC_ETH_QOS_res_data *res_data;
 	bool phy_intr_en;
 	bool always_on_phy;
+	/* Module parameter to check if PHY interrupt should be
+	enabled. Default value is true. */
+	bool enable_phy_intr;
 
 	struct msm_bus_scale_pdata *bus_scale_vec;
 	uint32_t bus_hdl;
@@ -1796,6 +1806,9 @@ struct DWC_ETH_QOS_prv_data {
 	struct iommu_domain *iommu_domain;
 	unsigned int *emac_reg_base_address;
 	unsigned int *rgmii_reg_base_address;
+
+	/* Debugfs base dir */
+	struct dentry *debugfs_dir;
 };
 
 typedef enum {
@@ -1879,6 +1892,7 @@ UINT DWC_ETH_QOS_get_total_desc_cnt(struct DWC_ETH_QOS_prv_data *pdata,
 int DWC_ETH_QOS_ptp_init(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_ptp_remove(struct DWC_ETH_QOS_prv_data *pdata);
 phy_interface_t DWC_ETH_QOS_get_phy_interface(struct DWC_ETH_QOS_prv_data *pdata);
+phy_interface_t DWC_ETH_QOS_get_io_macro_phy_interface(struct DWC_ETH_QOS_prv_data *pdata);
 int DWC_ETH_QOS_enable_ptp_clk(struct device *dev);
 void DWC_ETH_QOS_disable_ptp_clk(struct device *dev);
 

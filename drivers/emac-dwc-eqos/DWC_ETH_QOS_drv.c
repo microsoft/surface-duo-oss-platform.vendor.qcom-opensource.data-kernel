@@ -7523,7 +7523,7 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_NOPAY_PKTS_RGOFFADDR);
 	mmc->mmc_rx_ipv4_frag +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_FRAG_PKTS_RGOFFADDR);
-	mmc->mmc_rx_ipv4_udsbl +=
+	mmc->mmc_rx_ipv4_udp_csum_disable +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_UBSBL_PKTS_RGOFFADDR);
 
 	/* IPV6 */
@@ -7537,15 +7537,15 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 	/* Protocols */
 	mmc->mmc_rx_udp_gd +=
 		DWC_ETH_QOS_reg_read(MMC_RXUDP_GD_PKTS_RGOFFADDR);
-	mmc->mmc_rx_udp_err +=
+	mmc->mmc_rx_udp_csum_err +=
 		DWC_ETH_QOS_reg_read(MMC_RXUDP_ERR_PKTS_RGOFFADDR);
 	mmc->mmc_rx_tcp_gd +=
 		DWC_ETH_QOS_reg_read(MMC_RXTCP_GD_PKTS_RGOFFADDR);
-	mmc->mmc_rx_tcp_err +=
+	mmc->mmc_rx_tcp_csum_err +=
 		DWC_ETH_QOS_reg_read(MMC_RXTCP_ERR_PKTS_RGOFFADDR);
 	mmc->mmc_rx_icmp_gd +=
 		DWC_ETH_QOS_reg_read(MMC_RXICMP_GD_PKTS_RGOFFADDR);
-	mmc->mmc_rx_icmp_err +=
+	mmc->mmc_rx_icmp_csum_err +=
 		DWC_ETH_QOS_reg_read(MMC_RXICMP_ERR_PKTS_RGOFFADDR);
 
 	/* IPv4 */
@@ -7557,7 +7557,7 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_NOPAY_OCTETS_RGOFFADDR);
 	mmc->mmc_rx_ipv4_frag_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_FRAG_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_ipv4_udsbl_octets +=
+	mmc->mmc_rx_ipv4_udp_csum_disable_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_UDSBL_OCTETS_RGOFFADDR);
 
 	/* IPV6 */
@@ -7571,18 +7571,43 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 	/* Protocols */
 	mmc->mmc_rx_udp_gd_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXUDP_GD_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_udp_err_octets +=
+	mmc->mmc_rx_udp_csum_err_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXUDP_ERR_OCTETS_RGOFFADDR);
 	mmc->mmc_rx_tcp_gd_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXTCP_GD_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_tcp_err_octets +=
+	mmc->mmc_rx_tcp_csum_err_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXTCP_ERR_OCTETS_RGOFFADDR);
 	mmc->mmc_rx_icmp_gd_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXICMP_GD_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_icmp_err_octets +=
+	mmc->mmc_rx_icmp_csum_err_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXICMP_ERR_OCTETS_RGOFFADDR);
 
+	/* LPI Rx and Tx Transition counters */
+	mmc->mmc_emac_rx_lpi_tran_cntr +=
+		DWC_ETH_QOS_reg_read(MMC_EMAC_RX_LPI_TRAN_CNTR_RGOFFADDR);
+	mmc->mmc_emac_tx_lpi_tran_cntr +=
+		DWC_ETH_QOS_reg_read(MMC_EMAC_TX_LPI_TRAN_CNTR_RGOFFADDR);
+
 	DBGPR("<--DWC_ETH_QOS_mmc_read\n");
+}
+
+phy_interface_t DWC_ETH_QOS_get_io_macro_phy_interface(
+	struct DWC_ETH_QOS_prv_data *pdata)
+{
+	phy_interface_t ret = PHY_INTERFACE_MODE_MII;
+
+	EMACDBG("-->DWC_ETH_QOS_get_io_macro_phy_interface\n");
+
+	if (pdata->io_macro_phy_intf == RGMII_MODE)
+		ret = PHY_INTERFACE_MODE_RGMII;
+	else if (pdata->io_macro_phy_intf == RMII_MODE)
+		ret = PHY_INTERFACE_MODE_RMII;
+	else if (pdata->io_macro_phy_intf == MII_MODE)
+		ret = PHY_INTERFACE_MODE_MII;
+
+	EMACDBG("<--DWC_ETH_QOS_get_io_macro_phy_interface\n");
+
+	return ret;
 }
 
 phy_interface_t DWC_ETH_QOS_get_phy_interface(

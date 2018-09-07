@@ -81,6 +81,103 @@ module_param(phy_intf_bypass_mode, uint, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(phy_intf_bypass_mode,
 		 "Phy interface bypass mode [1-Non-ID, 0-ID]");
 
+int phy_interrupt_en = 1;
+module_param(phy_interrupt_en, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(phy_interrupt_en,
+		"Enable PHY interrupt [0-DISABLE, 1-ENABLE]");
+
+static ssize_t read_phy_reg_dump(struct file *file,
+	char __user *user_buf, size_t count, loff_t *ppos)
+{
+	struct DWC_ETH_QOS_prv_data *pdata = file->private_data;
+	unsigned int len = 0, buf_len = 2000;
+	char* buf;
+	ssize_t ret_cnt;
+	int phydata = 0;
+	int i = 0;
+
+	if (!pdata || !pdata->phydev) {
+		EMACERR(" %s NULL Pointer \n",__func__);
+		return -EINVAL;
+	}
+
+	buf = kzalloc(buf_len, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	len += scnprintf(buf + len, buf_len - len,
+					 "\n************* PHY Reg dump *************\n");
+
+	for (i = 0; i < 32; i++) {
+		DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, i, &phydata);
+		len += scnprintf(buf + len, buf_len - len,
+					 "MII Register (%#x) = %#x\n",
+					 i, phydata);
+	}
+
+	if (len > buf_len) {
+		EMACERR(" %s (len > buf_len) buffer not sufficient\n",__func__);
+		len = buf_len;
+	}
+
+	ret_cnt = simple_read_from_buffer(user_buf, count, ppos, buf, len);
+	kfree(buf);
+	return ret_cnt;
+}
+
+static const struct file_operations fops_phy_reg_dump = {
+	.read = read_phy_reg_dump,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
+int DWC_ETH_QOS_create_debugfs(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	static struct dentry *phy_reg_dump = NULL;
+
+	if(!pdata) {
+		EMACERR( "Null Param %s \n", __func__);
+		return -1;
+	}
+
+	pdata->debugfs_dir = debugfs_create_dir("eth", NULL);
+
+	if (!pdata->debugfs_dir) {
+		EMACERR( "Cannot create debugfs dir %d \n", (int)pdata->debugfs_dir);
+		return -ENOMEM;
+	}
+
+	phy_reg_dump = debugfs_create_file("phy_reg_dump", S_IRUSR, pdata->debugfs_dir,
+				pdata, &fops_phy_reg_dump);
+	if (!phy_reg_dump || IS_ERR(phy_reg_dump)) {
+		EMACERR( "Cannot create debugfs phy_reg_dump %d \n", (int)phy_reg_dump);
+		goto fail;
+	}
+
+	return 0;
+
+fail:
+	debugfs_remove_recursive(pdata->debugfs_dir);
+	return -ENOMEM;
+}
+
+int DWC_ETH_QOS_cleanup_debugfs(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	if(!pdata) {
+		EMACERR("Null Param %s \n", __func__);
+		return -1;
+	}
+
+	if (pdata->debugfs_dir) {
+		debugfs_remove_recursive(pdata->debugfs_dir);
+		pdata->debugfs_dir = NULL;
+	}
+
+	EMACDBG("EMAC debugfs Deleted Successfully \n");
+	return 0;
+}
+
 void DWC_ETH_QOS_init_all_fptrs(struct DWC_ETH_QOS_prv_data *pdata)
 {
 	DWC_ETH_QOS_init_function_ptrs_dev(&pdata->hw_if);
@@ -757,16 +854,22 @@ void DWC_ETH_QOS_qmp_mailbox_work(struct work_struct *work)
 int DWC_ETH_QOS_enable_ptp_clk(struct device *dev)
 {
 	int ret;
+	const char* ptp_clock_name;
+
+	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0)
+		ptp_clock_name = "emac_ptp_clk";
+	else
+		ptp_clock_name = "eth_ptp_clk";
 
 	/* valid value of dwc_eth_qos_res_data.ptp_clk indicates that clock is enabled */
 	if (!dwc_eth_qos_res_data.ptp_clk) {
 
-		dwc_eth_qos_res_data.ptp_clk = devm_clk_get(dev, "eth_ptp_clk");
+		dwc_eth_qos_res_data.ptp_clk = devm_clk_get(dev, ptp_clock_name);
 
 		if (IS_ERR(dwc_eth_qos_res_data.ptp_clk)) {
 			dwc_eth_qos_res_data.ptp_clk = NULL;
 			if (dwc_eth_qos_res_data.ptp_clk != ERR_PTR(-EPROBE_DEFER)) {
-				EMACERR("unable to get ptp_clk\n");
+				EMACERR("unable to get %s\n", ptp_clock_name);
 				return -EIO;
 			}
 		}
@@ -774,14 +877,14 @@ int DWC_ETH_QOS_enable_ptp_clk(struct device *dev)
 		ret = clk_prepare_enable(dwc_eth_qos_res_data.ptp_clk);
 
 		if (ret) {
-			EMACERR("Failed to enable ptp_clk\n");
+			EMACERR("Failed to enable %s\n", ptp_clock_name);
 			goto ptp_clk_fail;
 		}
 
 		ret = clk_set_rate(dwc_eth_qos_res_data.ptp_clk, DWC_ETH_QOS_SYSCLOCK);
 
 		if (ret) {
-			EMACERR("Failed to set rate for ptp_clk\n");
+			EMACERR("Failed to set rate for %s\n", ptp_clock_name);
 			goto ptp_clk_fail;
 		}
 	}
@@ -880,7 +983,6 @@ static int DWC_ETH_QOS_get_clks(struct device *dev)
 	const char* axi_clock_name;
 	const char* ahb_clock_name;
 	const char* rgmii_clock_name;
-	const char* ptp_clock_name;
 
 	dwc_eth_qos_res_data.axi_clk = NULL;
 	dwc_eth_qos_res_data.ahb_clk = NULL;
@@ -892,13 +994,11 @@ static int DWC_ETH_QOS_get_clks(struct device *dev)
 		axi_clock_name = "emac_axi_clk";
 		ahb_clock_name = "emac_slv_ahb_clk";
 		rgmii_clock_name = "emac_rgmii_clk";
-		ptp_clock_name = "emac_ptp_clk";
 	} else {
 		/* Default values are for Chiron clocks */
 		axi_clock_name = "eth_axi_clk";
 		ahb_clock_name = "eth_slave_ahb_clk";
 		rgmii_clock_name = "eth_rgmii_clk";
-		ptp_clock_name = "eth_ptp_clk";
 	}
 
 	dwc_eth_qos_res_data.axi_clk = devm_clk_get(dev, axi_clock_name);
@@ -921,14 +1021,6 @@ static int DWC_ETH_QOS_get_clks(struct device *dev)
 	if (IS_ERR(dwc_eth_qos_res_data.rgmii_clk)) {
 		if (dwc_eth_qos_res_data.rgmii_clk != ERR_PTR(-EPROBE_DEFER)) {
 			EMACERR("unable to get rgmii clk\n");
-			return -EIO;
-		}
-	}
-
-	dwc_eth_qos_res_data.ptp_clk = devm_clk_get(dev, ptp_clock_name);
-	if (IS_ERR(dwc_eth_qos_res_data.ptp_clk)) {
-		if (dwc_eth_qos_res_data.ptp_clk != ERR_PTR(-EPROBE_DEFER)) {
-			EMACERR("unable to get ptp_clk\n");
 			return -EIO;
 		}
 	}
@@ -1350,7 +1442,9 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 
 	dev->netdev_ops = DWC_ETH_QOS_get_netdev_ops();
 
-	pdata->interface = DWC_ETH_QOS_get_phy_interface(pdata);
+	pdata->interface = DWC_ETH_QOS_get_io_macro_phy_interface(pdata);
+
+	pdata->enable_phy_intr = phy_interrupt_en;
 
 	/* Bypass PHYLIB for TBI, RTBI and SGMII interface */
 	if (pdata->hw_feat.sma_sel == 1) {
@@ -1469,6 +1563,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		INIT_WORK(&pdata->qmp_mailbox_work, DWC_ETH_QOS_qmp_mailbox_work);
 		queue_work(system_wq, &pdata->qmp_mailbox_work);
 	}
+	DWC_ETH_QOS_create_debugfs(pdata);
 
 	EMACDBG("<-- DWC_ETH_QOS_configure_netdevice\n");
 
@@ -1765,6 +1860,9 @@ int DWC_ETH_QOS_remove(struct platform_device *pdev)
 		EMACERR("<-- DWC_ETH_QOS_remove\n");
 		return -1;
 	}
+
+	DWC_ETH_QOS_cleanup_debugfs(pdata);
+
 #ifdef PER_CH_INT
 	DWC_ETH_QOS_deregister_per_ch_intr(pdata);
 #endif
@@ -1810,6 +1908,11 @@ int DWC_ETH_QOS_remove(struct platform_device *pdev)
 	emac_emb_smmu_exit();
 
 	DWC_ETH_QOS_set_clk_and_bus_config(pdata, 0);
+
+	if (pdata->bus_hdl){
+		msm_bus_scale_unregister_client(pdata->bus_hdl);
+		pdata->bus_hdl = 0;
+	}
 
 	free_netdev(dev);
 
