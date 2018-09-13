@@ -363,7 +363,7 @@ static void release_pending_packets_exp(struct gsb_if_info *if_info)
 		if (retval != NET_RX_SUCCESS)
 		{
 			DEBUG_ERROR("ERROR sending to nw stack %d\n", retval);
-			dev_kfree_skb_any(skb);
+
 			pipa_ctx->stats.exp_if_disconnected_fail++;
 		}
 		else
@@ -377,7 +377,7 @@ static void release_pending_packets_exp(struct gsb_if_info *if_info)
 
 static void flush_pending_packets(struct gsb_if_info *if_info)
 {
-	DEBUG_TRACE("Flush %d Pending UL Packets \n", if_info->pend_queue.qlen);
+	DEBUG_INFO("Flush %d Pending UL Packets \n", if_info->pend_queue.qlen);
 	skb_queue_purge(&if_info->pend_queue);
 }
 
@@ -1672,9 +1672,8 @@ static int gsb_device_event(struct notifier_block *this, unsigned long event, vo
 	case NETDEV_DOWN:
 		if (if_info->is_connected_to_ipa_bridge)
 		{
-			// lets send all pending packets to Network stack
-			release_pending_packets_exp(if_info);
-
+			// flush all pending packets.
+			flush_pending_packets(if_info);
 			// no need for inactivity timer as netdev going down
 			if (ipa_bridge_disconnect(if_info->handle) == 0)
 			{
