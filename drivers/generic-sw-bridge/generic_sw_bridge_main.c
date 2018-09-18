@@ -1192,14 +1192,12 @@ static long gsb_ioctl(struct file *filp,
 	struct if_ipa_ctx *pif_ipa = NULL;
 	ssize_t result = 0;
 
-	if (__gc != NULL)
-	{
-		pgsb_ctx = __gc;
-	}
-	else
+	if (__gc == NULL)
 	{
 		DEBUG_ERROR("Null Context, cannot execute IOCTL\n");
+		return retval;
 	}
+	pgsb_ctx = __gc;
 
 	switch (cmd)
 	{
@@ -1290,7 +1288,7 @@ static long gsb_ioctl(struct file *filp,
 		DEBUG_INFO("device %s got GSB_IOC_DEL_IF_CONFIG\n",
 				gsb_drv_name);
 
-		if (pgsb_ctx != NULL && (pgsb_ctx->configured_if_count == 0))
+		if (pgsb_ctx->configured_if_count == 0)
 		{
 			DEBUG_ERROR("GSB cannot delete as there are no configured IF\n");
 			retval = -ENODEV;
@@ -1307,7 +1305,6 @@ static long gsb_ioctl(struct file *filp,
 			break;
 		}
 		pgsb_ctx->mem_alloc_ioctl_buffer++;
-
 		if (copy_from_user(config, (struct gsb_if_config *)arg, payload_size))
 		{
 			DEBUG_ERROR("Failed copying\n");
