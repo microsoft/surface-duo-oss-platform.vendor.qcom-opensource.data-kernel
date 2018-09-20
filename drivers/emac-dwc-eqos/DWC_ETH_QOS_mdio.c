@@ -548,6 +548,22 @@ static void set_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata,
 			EMACDBG("Read 0x%x from offset 0x8\n",phydata);
 			phydata = 0;
 
+			if (pdata->emac_hw_version_type == EMAC_HW_v2_1_2
+			|| pdata->emac_hw_version_type == EMAC_HW_v2_1_1) {
+				u16 tx_clk = 0xE;
+				/* Provide TX_CLK  delay of -0.06nsec */
+				DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+						DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR, 0x8, &phydata);
+				phydata |= (tx_clk << 5);
+				DWC_ETH_QOS_mdio_mmd_register_write_direct(pdata, pdata->phyaddr,
+						DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR, 0x8, phydata);
+
+				DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+						DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR, 0x8, &phydata);
+				EMACDBG("Read 0x%x from offset 0x8\n",phydata);
+				phydata = 0;
+			}
+
 			/*RXD0 = 15,RXD1 = 15,RXD2 = 0,RXD3 = 2*/
 			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x5,&phydata);
@@ -675,7 +691,11 @@ static void configure_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata)
 			} else {
 				/* Settings for RGMII ID mode */
 				set_phy_rx_tx_delay(pdata, DISABLE_RX_DELAY, DISABLE_TX_DELAY);
-			}
+				/* Not applicable for EMAC core version 2.1.0, 2.1.2 and 2.1.1 */
+				if (pdata->emac_hw_version_type != EMAC_HW_v2_1_0 &&
+					pdata->emac_hw_version_type != EMAC_HW_v2_1_2 &&
+					pdata->emac_hw_version_type != EMAC_HW_v2_1_1)
+					set_phy_rx_tx_delay(pdata, DISABLE_RX_DELAY, DISABLE_TX_DELAY);
 		}
 		break;
 	}
