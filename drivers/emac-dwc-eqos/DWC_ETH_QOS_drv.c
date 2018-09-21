@@ -1952,7 +1952,7 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct desc_if_struct *desc_if = &pdata->desc_if;
-	int ret = 0;
+	int ret = 0, qinx = 0;
 
 	DBGPR("-->DWC_ETH_QOS_close\n");
 
@@ -1965,16 +1965,41 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 		phy_stop(pdata->phydev);
 
 #ifndef DWC_ETH_QOS_CONFIG_PGTEST
+	/* Stop SW TX before DMA TX in HW */
 	netif_tx_disable(dev);
+	DWC_ETH_QOS_stop_all_ch_tx_dma(pdata);
+
+	if (pdata->ipa_enabled)
+		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DEV_CLOSE);
+
+	/* Disable MAC TX/RX */
+	hw_if->stop_mac_tx_rx();
+
+	/* Stop SW RX after DMA RX in HW */
+	DWC_ETH_QOS_stop_all_ch_rx_dma(pdata);
 	DWC_ETH_QOS_all_ch_napi_disable(pdata);
 
-	if (pdata->ipa_enabled) {
-		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DEV_CLOSE);
-	}
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
+
+#ifdef DWC_ETH_QOS_TXPOLLING_MODE_ENABLE
+    for (qinx = 0; qinx < DWC_ETH_QOS_TX_QUEUE_CNT; qinx++) {
+		/* check for tx descriptor status */
+		DWC_ETH_QOS_tx_interrupt(pdata->dev, pdata, qinx);
+    }
+#endif
+
+	for (qinx = 0; qinx < DWC_ETH_QOS_RX_QUEUE_CNT; qinx++) {
+		if (pdata->ipa_enabled && (qinx == IPA_DMA_RX_CH))
+			continue;
+
+		(void)pdata->clean_rx(pdata, NAPI_PER_QUEUE_POLL_BUDGET, qinx);
+	}
 
 	/* issue software reset to device */
 	hw_if->exit();
+
+    DWC_ETH_QOS_restart_phy(pdata);
+
 	desc_if->tx_free_mem(pdata);
 	desc_if->rx_free_mem(pdata);
 #ifdef PER_CH_INT
@@ -2311,7 +2336,7 @@ UINT DWC_ETH_QOS_get_total_desc_cnt(struct DWC_ETH_QOS_prv_data *pdata,
 				    struct sk_buff *skb, UINT qinx)
 {
 	UINT count = 0, size = 0;
-	INT length = 0;
+	INT length = 0, i = 0;
 #ifdef DWC_ETH_QOS_ENABLE_VLAN_TAG
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct s_tx_pkt_features *tx_pkt_features = GET_TX_PKT_FEATURES_PTR;
@@ -2320,8 +2345,19 @@ UINT DWC_ETH_QOS_get_total_desc_cnt(struct DWC_ETH_QOS_prv_data *pdata,
 #endif
 
 	/* SG fragment count */
-	count += skb_shinfo(skb)->nr_frags;
+	DBGPR("No of frags : %d \n",skb_shinfo(skb)->nr_frags);
+	for ( i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		struct skb_frag_struct *frag = &skb_shinfo(skb)->frags[i];
+		length = frag->size;
+		while (length) {
+			size =
+				min_t(unsigned int, length, DWC_ETH_QOS_MAX_DATA_PER_TXD);
+			length -= size;
+			count ++;
+		}
+	}
 
+	length = 0;
 	/* descriptors required based on data limit per descriptor */
 	length = (skb->len - skb->data_len);
 	while (length) {
@@ -2376,10 +2412,22 @@ inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb,
 	UINT ret = DEFAULT_INT_MOD;
 	UINT eth_type = GET_ETH_TYPE(skb->data);
 
-	if (eth_type == ETH_P_TSN)
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+	if (eth_type == ETH_P_1588)
+		ret = PTP_INT_MOD;
+	else
+#endif
+	if (eth_type == ETH_P_TSN) {
 		ret = AVB_INT_MOD;
-	else if (eth_type == ETH_P_IP || eth_type == ETH_P_IPV6)
+	} else if (eth_type == ETH_P_IP || eth_type == ETH_P_IPV6) {
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+		if (udp_hdr(skb)->dest == htons(PTP_UDP_EV_PORT)
+			|| udp_hdr(skb)->dest == htons(PTP_UDP_GEN_PORT)) {
+			ret = PTP_INT_MOD;
+		} else
+#endif
 		ret = IP_PKT_INT_MOD;
+	}
 
 	return ret;
 }
@@ -2520,6 +2568,14 @@ static int DWC_ETH_QOS_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		count++;
 #endif /* End of DWC_ETH_QOS_ENABLE_DVLAN */
 
+	/*Check if count is greater than free_desc_count to avoid integer overflow
+	  count cannot be greater than free_desc-count as it is already checked in
+	  the starting of this function*/
+	if (count > desc_data->free_desc_cnt) {
+		EMACERR("count : %u cannot be greater than free_desc_count: %u",count,
+				desc_data->free_desc_cnt);
+		BUG();
+	}
 	desc_data->free_desc_cnt -= count;
 	desc_data->tx_pkt_queued += count;
 
@@ -4828,8 +4884,22 @@ static VOID DWC_ETH_QOS_config_timer_registers(
 		DBGPR("-->DWC_ETH_QOS_config_timer_registers\n");
 
 		/* program Sub Second Increment Reg */
+#ifdef CONFIG_PPS_OUTPUT
+		/* If default_addend is already programmed, then we expect that
+      * sub_second_increment is also programmed already */
+    if(pdata->default_addend == 0){
+			hw_if->config_sub_second_increment(DWC_ETH_QOS_SYSCLOCK); // Using default 250MHz
+		}
+		else {
+			u64 pclk;
+			pclk = (u64) (pdata->default_addend) *  DWC_ETH_QOS_SYSCLOCK;
+			pclk += 0x8000000;
+			pclk >>= 32;
+			hw_if->config_sub_second_increment((u32)pclk);
+		}
+#else
 		hw_if->config_sub_second_increment(DWC_ETH_QOS_SYSCLOCK);
-
+#endif
 		/* formula is :
 		 * addend = 2^32/freq_div_ratio;
 		 *
@@ -4843,9 +4913,16 @@ static VOID DWC_ETH_QOS_config_timer_registers(
 		 * 2^x * y == (y << x), hence
 		 * 2^32 * 50000000 ==> (50000000 << 32)
 		 */
+#ifdef CONFIG_PPS_OUTPUT
+		if(pdata->default_addend == 0){
+			temp = (u64)(50000000ULL << 32);
+			pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
+			EMACDBG("Using default PTP clock = 250MHz\n");
+		}
+#else
 		temp = (u64)(50000000ULL << 32);
 		pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
-
+#endif
 		hw_if->config_addend(pdata->default_addend);
 
 		/* initialize system time */
@@ -4971,6 +5048,117 @@ static int DWC_ETH_QOS_config_pfc(struct net_device *dev,
 
 	return ret;
 }
+
+#ifdef CONFIG_PPS_OUTPUT
+/*!
+ * \brief This function confiures the PTP clock frequency.
+ * \param[in] pdata : pointer to private data structure.
+ * \param[in] req : pointer to ioctl structure.
+ *
+ * \retval 0: Success, -1 : Failure
+ * */
+static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
+{
+	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
+	struct hw_if_struct *hw_if = &pdata->hw_if;
+	int ret = 0;
+	u64 val;
+
+	if ((eth_pps_cfg->ppsout_ch < 0) ||
+		(eth_pps_cfg->ppsout_ch >= pdata->hw_feat.pps_out_num))
+	{
+		EMACERR("PPS: PPS output channel %u is invalid \n", eth_pps_cfg->ppsout_ch);
+		return  -EOPNOTSUPP;
+	}
+
+	if (eth_pps_cfg->ptpclk_freq > DWC_ETH_QOS_SYSCLOCK){
+		EMACINFO("PPS: PTPCLK_Config: freq=%dHz is too high. Cannot config it\n",
+			eth_pps_cfg->ptpclk_freq );
+		return -1;
+	}
+	pdata->ptpclk_freq = eth_pps_cfg->ptpclk_freq;
+	val = (u64)(1ULL << 32);
+	val = val * (eth_pps_cfg->ptpclk_freq);
+	val += (DWC_ETH_QOS_SYSCLOCK/2);
+	val = div_u64(val, DWC_ETH_QOS_SYSCLOCK);
+	if ( val > 0xFFFFFFFF) val = 0xFFFFFFFF;
+	EMACINFO("PPS: PTPCLK_Config: freq=%dHz, addend_reg=0x%x\n",
+				eth_pps_cfg->ptpclk_freq, (unsigned int)val);
+
+	pdata->default_addend = val;
+	ret = hw_if->config_addend((unsigned int)val);
+	ret |= hw_if->config_sub_second_increment( (ULONG)eth_pps_cfg->ptpclk_freq);
+
+	return ret;
+}
+
+/*!
+ * \brief This function confiures the PPS output.
+ * \param[in] pdata : pointer to private data structure.
+ * \param[in] req : pointer to ioctl structure.
+ *
+ * \retval 0: Success, -1 : Failure
+ * */
+static int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
+{
+	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
+	struct hw_if_struct *hw_if = &pdata->hw_if;
+	unsigned int val;
+	int interval, width;
+
+	if ((eth_pps_cfg->ppsout_ch < 0) ||
+		(eth_pps_cfg->ppsout_ch >= pdata->hw_feat.pps_out_num))
+	{
+		EMACERR("PPS: PPS output channel %u is invalid \n", eth_pps_cfg->ppsout_ch);
+		return  -EOPNOTSUPP;
+	}
+
+	if(eth_pps_cfg->ppsout_duty <= 0) {
+		printk("PPS: PPSOut_Config: duty cycle is invalid. Using duty=1\n");
+		eth_pps_cfg->ppsout_duty = 1;
+	}
+	else if(eth_pps_cfg->ppsout_duty >= 100) {
+		printk("PPS: PPSOut_Config: duty cycle is invalid. Using duty=99\n");
+		eth_pps_cfg->ppsout_duty = 99;
+	}
+
+	if(0 < eth_pps_cfg->ptpclk_freq) {
+		pdata->ptpclk_freq = eth_pps_cfg->ptpclk_freq;
+		interval = (eth_pps_cfg->ptpclk_freq + eth_pps_cfg->ppsout_freq/2)
+											/ eth_pps_cfg->ppsout_freq;
+	} else {
+		interval = (pdata->ptpclk_freq + eth_pps_cfg->ppsout_freq/2)
+											/ eth_pps_cfg->ppsout_freq;
+	}
+	width = ((interval * eth_pps_cfg->ppsout_duty) + 50)/100 - 1;
+	if (width >= interval) width = interval - 1;
+	if (width < 0) width = 0;
+
+	EMACINFO("PPS: PPSOut_Config: freq=%dHz, ch=%d, duty=%d\n",
+				eth_pps_cfg->ppsout_freq,
+				eth_pps_cfg->ppsout_ch,
+				eth_pps_cfg->ppsout_duty);
+	EMACINFO(" PPS: with PTP Clock freq=%dHz\n", pdata->ptpclk_freq);
+
+	EMACINFO("PPS: PPSOut_Config: interval=%d, width=%d\n", interval, width);
+
+	switch (eth_pps_cfg->ppsout_ch) {
+	case 0:
+		MAC_PPS_INTVAL0_PPSINT0_UDFWR(interval);  // interval
+		MAC_PPS_WIDTH0_PPSWIDTH0_UDFWR(width);
+		MAC_STSR_TSS_UDFRD(val);     //PTP seconds
+		MAC_PPS_TTS_TSTRH0_UDFWR(0, val+1);
+		MAC_PPSC_PPSCTRL0_UDFWR(0x2);
+		MAC_PPSC_PPSEN0_UDFWR(0x1);
+		break;
+	default:
+		EMACINFO("PPS: PPS output channel is invalid (only CH0 is supported).\n");
+		return -1;
+	}
+
+	return 0;
+}
+#endif
 
 /*!
  * \brief Driver IOCTL routine
@@ -5371,6 +5559,23 @@ static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 		ret = DWC_ETH_QOS_handle_pg_ioctl(pdata, (void *)req);
 		break;
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
+
+#ifdef CONFIG_PPS_OUTPUT
+	case DWC_ETH_QOS_CONFIG_PTPCLK_CMD:
+		if(pdata->hw_feat.pps_out_num == 0)
+			ret = -EOPNOTSUPP;
+		else
+			ret = ETH_PTPCLK_Config(pdata, req);
+		break;
+
+	case DWC_ETH_QOS_CONFIG_PPSOUT_CMD:
+		if(pdata->hw_feat.pps_out_num == 0)
+			ret = -EOPNOTSUPP;
+		else
+			ret = ETH_PPSOUT_Config(pdata, req);
+		break;
+#endif
+
 	default:
 		ret = -EOPNOTSUPP;
 		dev_alert(&pdata->pdev->dev, "Unsupported command call\n");
@@ -5569,13 +5774,7 @@ static int DWC_ETH_QOS_handle_hwtstamp_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 	if (!pdata->hwts_tx_en && !pdata->hwts_rx_en) {
 		/* disable hw time stamping */
 		hw_if->config_hw_time_stamping(VARMAC_TCR);
-
-		DWC_ETH_QOS_disable_ptp_clk(&pdata->pdev->dev);
 	} else {
-
-		if(DWC_ETH_QOS_enable_ptp_clk(&pdata->pdev->dev))
-			return -EFAULT;
-
 		VARMAC_TCR = (MAC_TCR_TSENA | MAC_TCR_TSCFUPDT |
 				MAC_TCR_TSCTRLSSR |
 				tstamp_all | ptp_v2 | ptp_over_ethernet |
@@ -5589,8 +5788,21 @@ static int DWC_ETH_QOS_handle_hwtstamp_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 		hw_if->config_hw_time_stamping(VARMAC_TCR);
 
 		/* program Sub Second Increment Reg */
+#ifdef CONFIG_PPS_OUTPUT
+		/* If default_addend is already programmed, then we expect that
+		* sub_second_increment is also programmed already */
+		if (pdata->default_addend == 0) {
+			hw_if->config_sub_second_increment(DWC_ETH_QOS_SYSCLOCK); // Using default 250MHz
+		} else {
+			u64 pclk;
+			pclk = (u64) (pdata->default_addend) *  DWC_ETH_QOS_SYSCLOCK;
+			pclk += 0x8000000;
+			pclk >>= 32;
+			hw_if->config_sub_second_increment((u32)pclk);
+		}
+#else
 		hw_if->config_sub_second_increment(DWC_ETH_QOS_SYSCLOCK);
-
+#endif
 		/* formula is :
 		 * addend = 2^32/freq_div_ratio;
 		 *
@@ -5605,9 +5817,16 @@ static int DWC_ETH_QOS_handle_hwtstamp_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 		 * 2^32 * 50000000 ==> (50000000 << 32)
 		 *
 		 */
+#ifdef CONFIG_PPS_OUTPUT
+		if(pdata->default_addend == 0){
+			temp = (u64)(50000000ULL << 32);
+			pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
+			EMACINFO("Using default PTP clock = 250MHz\n");
+		}
+#else
 		temp = (u64)(50000000ULL << 32);
 		pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
-
+#endif
 		hw_if->config_addend(pdata->default_addend);
 
 		/* initialize system time */
@@ -7502,7 +7721,7 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_NOPAY_PKTS_RGOFFADDR);
 	mmc->mmc_rx_ipv4_frag +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_FRAG_PKTS_RGOFFADDR);
-	mmc->mmc_rx_ipv4_udsbl +=
+	mmc->mmc_rx_ipv4_udp_csum_disable +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_UBSBL_PKTS_RGOFFADDR);
 
 	/* IPV6 */
@@ -7516,15 +7735,15 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 	/* Protocols */
 	mmc->mmc_rx_udp_gd +=
 		DWC_ETH_QOS_reg_read(MMC_RXUDP_GD_PKTS_RGOFFADDR);
-	mmc->mmc_rx_udp_err +=
+	mmc->mmc_rx_udp_csum_err +=
 		DWC_ETH_QOS_reg_read(MMC_RXUDP_ERR_PKTS_RGOFFADDR);
 	mmc->mmc_rx_tcp_gd +=
 		DWC_ETH_QOS_reg_read(MMC_RXTCP_GD_PKTS_RGOFFADDR);
-	mmc->mmc_rx_tcp_err +=
+	mmc->mmc_rx_tcp_csum_err +=
 		DWC_ETH_QOS_reg_read(MMC_RXTCP_ERR_PKTS_RGOFFADDR);
 	mmc->mmc_rx_icmp_gd +=
 		DWC_ETH_QOS_reg_read(MMC_RXICMP_GD_PKTS_RGOFFADDR);
-	mmc->mmc_rx_icmp_err +=
+	mmc->mmc_rx_icmp_csum_err +=
 		DWC_ETH_QOS_reg_read(MMC_RXICMP_ERR_PKTS_RGOFFADDR);
 
 	/* IPv4 */
@@ -7536,7 +7755,7 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_NOPAY_OCTETS_RGOFFADDR);
 	mmc->mmc_rx_ipv4_frag_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_FRAG_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_ipv4_udsbl_octets +=
+	mmc->mmc_rx_ipv4_udp_csum_disable_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_UDSBL_OCTETS_RGOFFADDR);
 
 	/* IPV6 */
@@ -7550,18 +7769,43 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 	/* Protocols */
 	mmc->mmc_rx_udp_gd_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXUDP_GD_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_udp_err_octets +=
+	mmc->mmc_rx_udp_csum_err_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXUDP_ERR_OCTETS_RGOFFADDR);
 	mmc->mmc_rx_tcp_gd_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXTCP_GD_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_tcp_err_octets +=
+	mmc->mmc_rx_tcp_csum_err_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXTCP_ERR_OCTETS_RGOFFADDR);
 	mmc->mmc_rx_icmp_gd_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXICMP_GD_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_icmp_err_octets +=
+	mmc->mmc_rx_icmp_csum_err_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXICMP_ERR_OCTETS_RGOFFADDR);
 
+	/* LPI Rx and Tx Transition counters */
+	mmc->mmc_emac_rx_lpi_tran_cntr +=
+		DWC_ETH_QOS_reg_read(MMC_EMAC_RX_LPI_TRAN_CNTR_RGOFFADDR);
+	mmc->mmc_emac_tx_lpi_tran_cntr +=
+		DWC_ETH_QOS_reg_read(MMC_EMAC_TX_LPI_TRAN_CNTR_RGOFFADDR);
+
 	DBGPR("<--DWC_ETH_QOS_mmc_read\n");
+}
+
+phy_interface_t DWC_ETH_QOS_get_io_macro_phy_interface(
+	struct DWC_ETH_QOS_prv_data *pdata)
+{
+	phy_interface_t ret = PHY_INTERFACE_MODE_MII;
+
+	EMACDBG("-->DWC_ETH_QOS_get_io_macro_phy_interface\n");
+
+	if (pdata->io_macro_phy_intf == RGMII_MODE)
+		ret = PHY_INTERFACE_MODE_RGMII;
+	else if (pdata->io_macro_phy_intf == RMII_MODE)
+		ret = PHY_INTERFACE_MODE_RMII;
+	else if (pdata->io_macro_phy_intf == MII_MODE)
+		ret = PHY_INTERFACE_MODE_MII;
+
+	EMACDBG("<--DWC_ETH_QOS_get_io_macro_phy_interface\n");
+
+	return ret;
 }
 
 phy_interface_t DWC_ETH_QOS_get_phy_interface(

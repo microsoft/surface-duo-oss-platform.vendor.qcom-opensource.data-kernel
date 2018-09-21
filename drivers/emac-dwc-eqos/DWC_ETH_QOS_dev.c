@@ -1145,13 +1145,23 @@ static INT config_sub_second_increment(ULONG ptp_clock)
 	/*  formula is : ((1/ptp_clock) * 1000000000) */
 	/*  where, ptp_clock = 50MHz if FINE correction */
 	/*  and ptp_clock = DWC_ETH_QOS_SYSCLOCK if COARSE correction */
-	if (GET_VALUE(
-			VARMAC_TCR, MAC_TCR_TSCFUPDT_LPOS,
-			MAC_TCR_TSCFUPDT_HPOS) == 1)
-		val = ((1 * 1000000000ull) / 50000000);
-	else
+#ifdef CONFIG_PPS_OUTPUT
+	if (GET_VALUE(VARMAC_TCR, MAC_TCR_TSCFUPDT_LPOS, MAC_TCR_TSCFUPDT_HPOS) == 1) {
+		EMACDBG("Using PTP clock %ld MHz\n", ptp_clock);
 		val = ((1 * 1000000000ull) / ptp_clock);
-
+	}
+	else {
+		EMACDBG("Using SYSCLOCK for coarse correction\n");
+		val = ((1 * 1000000000ull) / DWC_ETH_QOS_SYSCLOCK );
+	}
+#else
+	if (GET_VALUE(VARMAC_TCR, MAC_TCR_TSCFUPDT_LPOS, MAC_TCR_TSCFUPDT_HPOS) == 1) {
+      val = ((1 * 1000000000ull) / 50000000);
+    }
+    else {
+      val = ((1 * 1000000000ull) / ptp_clock);
+    }
+#endif
 	/* 0.465ns accurecy */
 	if (GET_VALUE(
 			VARMAC_TCR, MAC_TCR_TSCTRLSSR_LPOS,
@@ -4074,8 +4084,10 @@ static INT DWC_ETH_QOS_yexit(void)
 	/*Poll Until Poll Condition */
 	vy_count = 0;
 	while (1) {
-		if (vy_count > RETRYCOUNT)
+		if (vy_count > RETRYCOUNT) {
+			EMACERR("Unable to reset MAC 0x%x\n", VARDMA_BMR);
 			return -Y_FAILURE;
+		}
 
 		vy_count++;
 		mdelay(1);
@@ -4299,6 +4311,7 @@ static INT configure_rx_queue(UINT queue_index)
 	UINT rsf_config = 0x1;
 	UINT fup_config = 0x1;
 	UINT fep_config = 0x1;
+	UINT disable_csum_err_pkt_drop = 0x1;
 
 	EMACDBG("Enter\n");
 
@@ -4329,6 +4342,8 @@ static INT configure_rx_queue(UINT queue_index)
 	config_rsf_mode(queue_index, rsf_config);
 	MTL_QROMR_FUP_UDFWR(queue_index, fup_config);
 	MTL_QROMR_FEP_UDFWR(queue_index, fep_config);
+	/* Disable Dropping of TCP/IP Checksum Error Packets */
+	MTL_QROMR_DIS_TCP_EF_UDFWR(queue_index, disable_csum_err_pkt_drop);
 
 	/* Receive Queue Packet Arbitration reset for all RX queues */
 	MTL_QRCR_RXQ_PKT_ARBIT_UDFWR(queue_index, 0x0);
@@ -4569,10 +4584,8 @@ static int enable_mac_interrupts(void)
 	unsigned long varmac_imr;
 
 	/* Enable following interrupts */
-	/* LPIIM - LPI Interrupt Enable */
 	MAC_IMR_RGRD(varmac_imr);
 	varmac_imr = varmac_imr & (unsigned long)(0x1000);
-	varmac_imr = varmac_imr | ((0x1) << 5);
 	MAC_IMR_RGWR(varmac_imr);
 
 	return Y_SUCCESS;
@@ -4689,6 +4702,18 @@ static INT configure_mac(struct DWC_ETH_QOS_prv_data *pdata)
 	VARMAC_MCR |= ((0x1) << 1);
 #endif
 	MAC_MCR_RGWR(VARMAC_MCR);
+
+	switch (pdata->speed) {
+	case SPEED_1000:
+		set_gmii_speed();
+		break;
+	case SPEED_100:
+		set_mii_speed_100();
+		break;
+	case SPEED_10:
+		set_mii_speed_10();
+		break;
+	}
 
 	if (pdata->hw_feat.rx_coe_sel &&
 	    ((pdata->dev_state & NETIF_F_RXCSUM) == NETIF_F_RXCSUM))
