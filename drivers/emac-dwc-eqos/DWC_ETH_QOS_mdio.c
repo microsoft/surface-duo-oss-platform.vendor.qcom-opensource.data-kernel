@@ -512,44 +512,64 @@ static void set_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata,
 			EMACDBG("No PHY delay settings required for ID mode in HANA AU\n");
 			return;
 		}
-		rx_clk = 0x1F;
-		/* RX_CLK to 0*/
-		DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+		if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
+			if(!pdata->io_macro_tx_mode_non_id){
+				EMACDBG("No PHY delay settings required for ID mode for "
+						"EMAC core version 2.3.1 \n");
+				return;
+			}
+			rx_clk = 22;
+			/* RX_CLK to 0*/
+			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x8,&phydata);
-		phydata &= ~(0x1F);
-		phydata |= rx_clk;
-		DWC_ETH_QOS_mdio_mmd_register_write_direct(pdata, pdata->phyaddr,
+			phydata &= ~(0x1F<<5);
+			phydata |= (rx_clk << 5);
+			DWC_ETH_QOS_mdio_mmd_register_write_direct(pdata, pdata->phyaddr,
+						DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x8,phydata);
+
+			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+						DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x8,&phydata);
+			EMACDBG("Read 0x%x from offset 0x8\n",phydata);
+		} else {
+			rx_clk = 0x1F;
+			/* RX_CLK to 0*/
+			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x8,&phydata);
+			phydata &= ~(0x1F);
+			phydata |= rx_clk;
+			DWC_ETH_QOS_mdio_mmd_register_write_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x8,phydata);
 
-		DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x8,&phydata);
-		EMACDBG("Read 0x%x from offset 0x8\n",phydata);
-		phydata = 0;
+			EMACDBG("Read 0x%x from offset 0x8\n",phydata);
+			phydata = 0;
 
-		/*RXD0 = 15,RXD1 = 15,RXD2 = 0,RXD3 = 2*/
-		DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+			/*RXD0 = 15,RXD1 = 15,RXD2 = 0,RXD3 = 2*/
+			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x5,&phydata);
-		phydata &= ~(0xFF);
-		phydata |= ((0x0 << 12) | (0x0 << 8) | (0x0 << 4) | 0x0);
+			phydata &= ~(0xFF);
+			phydata |= ((0x0 << 12) | (0x0 << 8) | (0x0 << 4) | 0x0);
 
-		DWC_ETH_QOS_mdio_mmd_register_write_direct(pdata, pdata->phyaddr,
+			DWC_ETH_QOS_mdio_mmd_register_write_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x5,phydata);
-		DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x5,&phydata);
-		EMACDBG("Read 0x%x from offset 0x5\n",phydata);
-		phydata = 0;
+			EMACDBG("Read 0x%x from offset 0x5\n",phydata);
+			phydata = 0;
 
-		/*RX_CTL to 9*/
-		DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+			/*RX_CTL to 9*/
+			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x4,&phydata);
-		phydata &= ~(0xF << 4);
-		phydata |= (0x0 << 4);
-		DWC_ETH_QOS_mdio_mmd_register_write_direct(pdata, pdata->phyaddr,
+			phydata &= ~(0xF << 4);
+			phydata |= (0x0 << 4);
+			DWC_ETH_QOS_mdio_mmd_register_write_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x4,phydata);
-		DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
+			DWC_ETH_QOS_mdio_mmd_register_read_direct(pdata, pdata->phyaddr,
 					DWC_ETH_QOS_MICREL_PHY_DEBUG_MMD_DEV_ADDR,0x4,&phydata);
-		EMACDBG("Read 0x%x from offset 0x4\n",phydata);
-		phydata = 0;
+			EMACDBG("Read 0x%x from offset 0x4\n",phydata);
+			phydata = 0;
+		}
 	} else {
 		/* Default values are for PHY AR8035 */
 		int phydata = 0;
@@ -606,6 +626,11 @@ static void set_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata,
 static void configure_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata)
 {
 	EMACDBG("Enter\n");
+	if ((pdata->emac_hw_version_type == EMAC_HW_v2_3_1)
+		&& (pdata->io_macro_phy_intf == RMII_MODE)) {
+		EMACDBG("phy rx tx delay setting not required for RMII mode for 2.3.1\n");
+		return;
+	}
 
 	switch (pdata->speed) {
 	case SPEED_1000:
