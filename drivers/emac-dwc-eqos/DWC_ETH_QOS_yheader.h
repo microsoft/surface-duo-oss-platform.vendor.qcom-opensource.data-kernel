@@ -173,7 +173,7 @@
 #define DWC_ETH_QOS_QUEUE_SELECT_ALGO
 /* #define DWC_ETH_QOS_CERTIFICATION_PKTBURSTCNT */
 /* #define DWC_ETH_QOS_CERTIFICATION_PKTBURSTCNT_HALFDUPLEX */
-#define DWC_ETH_QOS_TXPOLLING_MODE_ENABLE
+/* #define DWC_ETH_QOS_TXPOLLING_MODE_ENABLE */
 /* #define DWC_ETH_QOS_COPYBREAK_ENABLED */
 
 #ifdef DWC_ETH_QOS_CONFIG_PTP
@@ -402,6 +402,8 @@
 #define DWC_ETH_QOS_SYSCLOCK	250000000 /* System clock is 250MHz */
 #define DWC_ETH_QOS_SYSTIMEPERIOD	4 /* System time period is 4ns */
 
+#define DWC_ETH_QOS_DEFAULT_PTP_CLOCK 250000000
+
 #define DWC_ETH_QOS_TX_QUEUE_CNT (pdata->tx_queue_cnt)
 #define DWC_ETH_QOS_RX_QUEUE_CNT (pdata->rx_queue_cnt)
 #define DWC_ETH_QOS_QUEUE_CNT min(DWC_ETH_QOS_TX_QUEUE_CNT, DWC_ETH_QOS_RX_QUEUE_CNT)
@@ -579,6 +581,8 @@
 #define QTAG_VLAN_ETH_TYPE_OFFSET 16
 #define QTAG_UCP_FIELD_OFFSET 14
 #define QTAG_ETH_TYPE_OFFSET 12
+#define PTP_UDP_EV_PORT 0x013F
+#define PTP_UDP_GEN_PORT 0x0140
 
 #define GET_ETH_TYPE(buf) \
                ((((u16)buf[QTAG_ETH_TYPE_OFFSET]<<8) | \
@@ -606,6 +610,7 @@
 #define DEFAULT_INT_MOD 1
 #define AVB_INT_MOD 8
 #define IP_PKT_INT_MOD 32
+#define PTP_INT_MOD 1
 
 #define DMA_TX_CH0 0
 #define DMA_TX_CH1 1
@@ -662,14 +667,14 @@
 /**
  * enum emac_hw_core_version - EMAC hardware core version type
 * @EMAC_HW_None: EMAC hardware version not defined
-* @EMAC_HW_v2_0_0: EMAC core version 2.0.0. & chips is SDX24(Chiron)
-* @EMAC_HW_v2_1_0: EMAC core version 2.1.0. & chips is SM8150(Hana)
-* @EMAC_HW_v2_1_1: EMAC core version 2.1.1. & chips is SC8180X(Poipu)
-* @EMAC_HW_v2_1_2: EMAC core version 2.1.2. & chips is SC810X(Poipu)v2,SM8150(Hana)v2
-* @EMAC_HW_v2_2_0: EMAC core version 2.2.0. & chips is SDX24(Chiron)v2
-* @EMAC_HW_v2_3_0: EMAC core version 2.3.0. & chips is QCS405(Vipertooth)
-* @EMAC_HW_v2_3_1: EMAC core version 2.3.1. & chips is SM6150(Talos)
-* @EMAC_HW_v2_3_2: EMAC core version 2.3.2. & chips is SDX55(Huracan)
+* @EMAC_HW_v2_0_0: EMAC core version 2.0.0.
+* @EMAC_HW_v2_1_0: EMAC core version 2.1.0.
+* @EMAC_HW_v2_1_1: EMAC core version 2.1.1.
+* @EMAC_HW_v2_1_2: EMAC core version 2.1.2.
+* @EMAC_HW_v2_2_0: EMAC core version 2.2.0.
+* @EMAC_HW_v2_3_0: EMAC core version 2.3.0.
+* @EMAC_HW_v2_3_1: EMAC core version 2.3.1.
+* @EMAC_HW_v2_3_2: EMAC core version 2.3.2.
 */
 
 #define EMAC_HW_None 0
@@ -1809,6 +1814,8 @@ struct DWC_ETH_QOS_prv_data {
 
 	/* Debugfs base dir */
 	struct dentry *debugfs_dir;
+	/* ptp clock frequency set by PTPCLK_Config ioctl default value is 250MHz */
+	unsigned int ptpclk_freq;
 };
 
 typedef enum {
@@ -1926,7 +1933,7 @@ irqreturn_t DWC_ETH_QOS_ISR_SW_DWC_ETH_QOS(int irq, void *dev_id);
 void DWC_ETH_QOS_handle_phy_interrupt(struct DWC_ETH_QOS_prv_data *pdata);
 int DWC_ETH_QOS_rgmii_io_macro_sdcdc_init(struct DWC_ETH_QOS_prv_data *);
 int DWC_ETH_QOS_rgmii_io_macro_sdcdc_enable_lp_mode(void);
-int DWC_ETH_QOS_rgmii_io_macro_sdcdc_config(void);
+int DWC_ETH_QOS_rgmii_io_macro_sdcdc_config(struct DWC_ETH_QOS_prv_data *pdata);
 int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *);
 int DWC_ETH_QOS_sdcc_set_bypass_mode(void);
 int DWC_ETH_QOS_rgmii_io_macro_dll_reset(struct DWC_ETH_QOS_prv_data *pdata);
@@ -1951,6 +1958,7 @@ int DWC_ETH_QOS_set_rgmii_func_clk_en(void);
 #define EMAC_RGMII_RX_CTL "dev-emac-rgmii_rx_ctl_state"
 #define EMAC_PHY_RESET "dev-emac-phy_reset_state"
 #define EMAC_PHY_INTR "dev-emac-phy_intr"
+#define EMAC_PIN_PPS0 "dev-emac_pin_pps_0"
 
 #ifdef PER_CH_INT
 void DWC_ETH_QOS_handle_DMA_Int(struct DWC_ETH_QOS_prv_data *pdata, int chinx, bool);

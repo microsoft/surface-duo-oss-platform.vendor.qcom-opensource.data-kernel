@@ -400,6 +400,7 @@ static void DWC_ETH_QOS_configure_gpio_pins(struct platform_device *pdev)
 	struct pinctrl_state *rgmii_rx_ctl_state;
 	struct pinctrl_state *emac_phy_reset_state;
 	struct pinctrl_state *emac_phy_intr_state;
+	struct pinctrl_state *emac_pps_0;
 
 	int ret = 0;
 
@@ -414,6 +415,22 @@ static void DWC_ETH_QOS_configure_gpio_pins(struct platform_device *pdev)
 			return;
 		}
 		EMACDBG("get pinctrl succeed\n");
+
+		if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_2_0) {
+			/* PPS0 pin */
+			emac_pps_0 = pinctrl_lookup_state(pinctrl, EMAC_PIN_PPS0);
+			if (IS_ERR_OR_NULL(emac_pps_0)) {
+				ret = PTR_ERR(emac_pps_0);
+				EMACERR("Failed to get emac_pps_0, err = %d\n", ret);
+				return;
+			}
+			EMACDBG("Get emac_pps_0 succeed\n");
+			ret = pinctrl_select_state(pinctrl, emac_pps_0);
+			if (ret) EMACERR("Unable to set emac_pps_0 state, err = %d\n", ret);
+			else EMACDBG("Set emac_pps_0 succeed\n");
+
+			return;
+		}
 
 		/* MDIO Pin ctlrs*/
 		mdc_state = pinctrl_lookup_state(pinctrl, EMAC_MDC);
@@ -900,6 +917,7 @@ ptp_clk_fail:
 void DWC_ETH_QOS_disable_ptp_clk(struct device* dev)
 {
 	if (dwc_eth_qos_res_data.ptp_clk){
+		clk_set_rate(dwc_eth_qos_res_data.ptp_clk, 0);
 		clk_disable_unprepare(dwc_eth_qos_res_data.ptp_clk);
 		devm_clk_put(dev, dwc_eth_qos_res_data.ptp_clk);
 	}
@@ -990,12 +1008,12 @@ static int DWC_ETH_QOS_get_clks(struct device *dev)
 	dwc_eth_qos_res_data.ptp_clk = NULL;
 
 	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0) {
-		/* HANA clocks */
+		/* EMAC core version 2.1.0 clocks */
 		axi_clock_name = "emac_axi_clk";
 		ahb_clock_name = "emac_slv_ahb_clk";
 		rgmii_clock_name = "emac_rgmii_clk";
 	} else {
-		/* Default values are for Chiron clocks */
+		/* Default values are for EMAC core version 2.0.0 clocks */
 		axi_clock_name = "eth_axi_clk";
 		ahb_clock_name = "eth_slave_ahb_clk";
 		rgmii_clock_name = "eth_rgmii_clk";
@@ -1518,6 +1536,8 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 
 #ifdef DWC_ETH_QOS_CONFIG_PTP
 	DWC_ETH_QOS_ptp_init(pdata);
+	/*default ptp clock frequency set to 50Mhz*/
+	pdata->ptpclk_freq = DWC_ETH_QOS_DEFAULT_PTP_CLOCK;
 #endif /* end of DWC_ETH_QOS_CONFIG_PTP */
 
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
