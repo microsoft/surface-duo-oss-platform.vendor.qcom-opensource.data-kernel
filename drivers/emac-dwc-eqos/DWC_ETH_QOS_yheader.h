@@ -120,6 +120,9 @@
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
 #include <linux/err.h>
+#include <linux/mailbox_client.h>
+#include <linux/mailbox/qmp.h>
+#include <linux/mailbox_controller.h>
 
 /* QOS Version Control Macros */
 /* #define DWC_ETH_QOS_VER_4_0 */
@@ -158,6 +161,9 @@
 /* NOTE: Uncomment below line for TX and RX DESCRIPTOR DUMP in KERNEL LOG */
 /* #define DWC_ETH_QOS_ENABLE_TX_DESC_DUMP */
 /* #define DWC_ETH_QOS_ENABLE_RX_DESC_DUMP */
+
+/*NOTE: Uncomment below line to enable error counters in TX interrupt*/
+//#define DWC_ETH_QOS_ENABLE_ERROR_COUNTERS
 
 /* NOTE: Uncomment below line for TX and RX PACKET DUMP in KERNEL LOG */
 /* #define DWC_ETH_QOS_ENABLE_TX_PKT_DUMP */
@@ -548,7 +554,7 @@
 /* for EEE */
 #define DWC_ETH_QOS_DEFAULT_LPI_LS_TIMER 0x3E8 /* 1000 in decimal */
 #define DWC_ETH_QOS_DEFAULT_LPI_TWT_TIMER 0x11 /* Typical 17uS */
-#define DWC_ETH_QOS_DEFAULT_LPI_LPIET_TIMER 125 /* 8*125uS=1000uS=1mS*/
+#define DWC_ETH_QOS_DEFAULT_LPI_LPIET_TIMER 0x1FFFF /* 131071uS=131.071mS */
 
 #define DWC_ETH_QOS_DEFAULT_LPI_TIMER 1000 /* LPI Tx local expiration time in msec */
 #define DWC_ETH_QOS_LPI_TIMER(x) (jiffies + msecs_to_jiffies(x))
@@ -592,7 +598,7 @@
 
 #define DEFAULT_INT_MOD 1
 #define AVB_INT_MOD 8
-#define IP_PKT_INT_MOD 16
+#define IP_PKT_INT_MOD 32
 
 #define DMA_TX_CH0 0
 #define DMA_TX_CH1 1
@@ -616,6 +622,10 @@
 #define EMAC_GPIO_PHY_INTR_REDIRECT_NAME "qcom,phy-intr-redirect"
 #define EMAC_GPIO_PHY_RESET_NAME "qcom,phy-reset"
 
+/* The values used in gpio_set_value() are boolean, zero for low, nonzero for high.*/
+#define PHY_RESET_GPIO_LOW  0
+#define PHY_RESET_GPIO_HIGH  1
+
 #define VOTE_IDX_0MBPS 0
 #define VOTE_IDX_10MBPS 1
 #define VOTE_IDX_100MBPS 2
@@ -638,6 +648,32 @@
 
 #define MII_100_LOW_SVS_CLK_FREQ  (25 * 1000 * 1000UL)
 #define MII_10_LOW_SVS_CLK_FREQ  (2.5 * 1000 * 1000UL)
+
+#define MAX_QMP_MSG_SIZE 96
+
+/**
+ * enum emac_hw_core_version - EMAC hardware core version type
+* @EMAC_HW_None: EMAC hardware version not defined
+* @EMAC_HW_v2_0_0: EMAC core version 2.0.0. & chips is SDX24(Chiron)
+* @EMAC_HW_v2_1_0: EMAC core version 2.1.0. & chips is SM8150(Hana)
+* @EMAC_HW_v2_1_1: EMAC core version 2.1.1. & chips is SC8180X(Poipu)
+* @EMAC_HW_v2_1_2: EMAC core version 2.1.2. & chips is SC810X(Poipu)v2,SM8150(Hana)v2
+* @EMAC_HW_v2_2_0: EMAC core version 2.2.0. & chips is SDX24(Chiron)v2
+* @EMAC_HW_v2_3_0: EMAC core version 2.3.0. & chips is QCS405(Vipertooth)
+* @EMAC_HW_v2_3_1: EMAC core version 2.3.1. & chips is SM6150(Talos)
+* @EMAC_HW_v2_3_2: EMAC core version 2.3.2. & chips is SDX55(Huracan)
+*/
+enum emac_core_version {
+	EMAC_HW_None = 0,
+	EMAC_HW_v2_0_0 = 1,
+	EMAC_HW_v2_1_0 = 2,
+	EMAC_HW_v2_1_1 = 3,
+	EMAC_HW_v2_1_2 = 4,
+	EMAC_HW_v2_2_0 = 5,
+	EMAC_HW_v2_3_0 = 6,
+	EMAC_HW_v2_3_1 = 7,
+	EMAC_HW_v2_3_2 = 8
+};
 
 /* C data types typedefs */
 typedef unsigned short BOOL;
@@ -1455,8 +1491,6 @@ struct DWC_ETH_QOS_res_data {
 	u32 emac_mem_size;
 	u32 rgmii_mem_base;
 	u32 rgmii_mem_size;
-	u32 tlmm_central_mem_base;
-	u32 tlmm_central_mem_size;
 	u32 sbd_intr;
 	u32 lpi_intr;
 	u32 io_macro_tx_mode_non_id;
@@ -1468,6 +1502,9 @@ struct DWC_ETH_QOS_res_data {
 #endif
 
 	/* GPIOs */
+	bool is_gpio_phy_intr_redirect;
+	bool is_gpio_phy_reset;
+	bool is_pinctrl_names;
 	int gpio_phy_intr_redirect;
 	int gpio_phy_reset;
 
@@ -1482,6 +1519,9 @@ struct DWC_ETH_QOS_res_data {
 	struct clk *ahb_clk;
 	struct clk *rgmii_clk;
 	struct clk *ptp_clk;
+	enum emac_core_version emac_hw_version_type;
+	u32 bit_mask;
+	bool is_bit_mask;
 };
 
 struct DWC_ETH_QOS_prv_ipa_data {
@@ -1493,6 +1533,8 @@ struct DWC_ETH_QOS_prv_ipa_data {
 	/* IPA state variables */
 	/* State of EMAC HW initilization */
 	bool emac_dev_ready;
+	/* State of IPA readiness */
+	bool ipa_ready;
 	/* State of IPA and IPA UC readiness */
 	bool ipa_uc_ready;
 	/* State of IPA Offload intf registration with IPA driver */
@@ -1528,6 +1570,8 @@ struct DWC_ETH_QOS_prv_data {
 	uint32_t bus_hdl;
 	u32 rgmii_clk_rate;
 	unsigned int vote_idx;
+	int clks_suspended;
+	struct completion clk_enable_done;
 
 #ifdef PER_CH_INT
 	bool per_ch_intr_en;
@@ -1729,6 +1773,21 @@ struct DWC_ETH_QOS_prv_data {
 	unsigned int io_macro_tx_mode_non_id;
 	unsigned int io_macro_phy_intf;
 	int phy_irq;
+	enum emac_core_version emac_hw_version_type;
+
+	/* QMP message for disabling ctile power collapse while XO shutdown */
+	struct mbox_chan *qmp_mbox_chan;
+	struct mbox_client *qmp_mbox_client;
+	struct work_struct qmp_mailbox_work;
+	int disable_ctile_pc;
+
+	/* Work struct for handling phy interrupt */
+	struct work_struct emac_phy_work;
+
+	/* Context variabled used for debugger */
+	struct iommu_domain *iommu_domain;
+	unsigned int *emac_reg_base_address;
+	unsigned int *rgmii_reg_base_address;
 };
 
 typedef enum {
@@ -1751,10 +1810,11 @@ struct emac_emb_smmu_cb_ctx {
 	struct platform_device *pdev_master;
 	struct platform_device *smmu_pdev;
 	struct dma_iommu_mapping *mapping;
-	struct iommu_domain *iommu;
+	struct iommu_domain *iommu_domain;
 	u32 va_start;
 	u32 va_size;
 	u32 va_end;
+	int ret;
 };
 
 extern struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx;
@@ -1767,7 +1827,8 @@ extern struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx;
 void DWC_ETH_QOS_init_function_ptrs_dev(struct hw_if_struct *);
 void DWC_ETH_QOS_init_function_ptrs_desc(struct desc_if_struct *);
 struct net_device_ops *DWC_ETH_QOS_get_netdev_ops(void);
-struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(void);
+struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(
+			struct DWC_ETH_QOS_prv_data *pdata);
 int DWC_ETH_QOS_poll_mq(struct napi_struct *, int);
 
 void DWC_ETH_QOS_get_pdata(struct DWC_ETH_QOS_prv_data *pdata);
@@ -1776,8 +1837,8 @@ void DWC_ETH_QOS_get_pdata(struct DWC_ETH_QOS_prv_data *pdata);
 int create_debug_files(void);
 void remove_debug_files(void);
 
-void DWC_ETH_QOS_scale_clks(struct DWC_ETH_QOS_prv_data *pdata, int speed);
 bool DWC_ETH_QOS_is_phy_link_up(struct DWC_ETH_QOS_prv_data *pdata);
+void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdata, int speed);
 int DWC_ETH_QOS_mdio_register(struct net_device *dev);
 void DWC_ETH_QOS_mdio_unregister(struct net_device *dev);
 INT DWC_ETH_QOS_mdio_read_direct(struct DWC_ETH_QOS_prv_data *pdata,
@@ -1810,11 +1871,21 @@ UINT DWC_ETH_QOS_get_total_desc_cnt(struct DWC_ETH_QOS_prv_data *pdata,
 int DWC_ETH_QOS_ptp_init(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_ptp_remove(struct DWC_ETH_QOS_prv_data *pdata);
 phy_interface_t DWC_ETH_QOS_get_phy_interface(struct DWC_ETH_QOS_prv_data *pdata);
+int DWC_ETH_QOS_enable_ptp_clk(struct device *dev);
+void DWC_ETH_QOS_disable_ptp_clk(struct device *dev);
+
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+/* PTP function to find PHC Index*/
+int DWC_ETH_QOS_phc_index(struct DWC_ETH_QOS_prv_data *pdata);
+#endif /* end of DWC_ETH_QOS_CONFIG_PTP */
+
 bool DWC_ETH_QOS_eee_init(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_handle_eee_interrupt(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_disable_eee_mode(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_enable_eee_mode(struct DWC_ETH_QOS_prv_data *pdata);
-
+void DWC_ETH_QOS_suspend_clks(struct DWC_ETH_QOS_prv_data *pdata);
+void DWC_ETH_QOS_resume_clks(struct DWC_ETH_QOS_prv_data *pdata);
+void DWC_ETH_QOS_set_clk_and_bus_config(struct DWC_ETH_QOS_prv_data *pdata, int speed);
 #ifdef DWC_ETH_QOS_CONFIG_PGTEST
 irqreturn_t DWC_ETH_QOS_ISR_SW_DWC_ETH_QOS_pg(int irq, void *dev_data);
 void DWC_ETH_QOS_default_confs(struct DWC_ETH_QOS_prv_data *pdata);
@@ -1847,6 +1918,25 @@ void dump_rgmii_io_macro_registers(void);
 #define EMAC_SDCC_HC_REG_DLL_CONFIG_2_POR 0x00200000
 #define EMAC_SDCC_USR_CTL_POR 0x00000000
 
+#define EMAC_MDC "dev-emac-mdc"
+#define EMAC_MDIO "dev-emac-mdio"
+
+#define EMAC_RGMII_TXD0 "dev-emac-rgmii_txd0_state"
+#define EMAC_RGMII_TXD1 "dev-emac-rgmii_txd1_state"
+#define EMAC_RGMII_TXD2 "dev-emac-rgmii_txd2_state"
+#define EMAC_RGMII_TXD3 "dev-emac-rgmii_txd3_state"
+#define EMAC_RGMII_TXC "dev-emac-rgmii_txc_state"
+#define EMAC_RGMII_TX_CTL "dev-emac-rgmii_tx_ctl_state"
+
+#define EMAC_RGMII_RXD0 "dev-emac-rgmii_rxd0_state"
+#define EMAC_RGMII_RXD1 "dev-emac-rgmii_rxd1_state"
+#define EMAC_RGMII_RXD2 "dev-emac-rgmii_rxd2_state"
+#define EMAC_RGMII_RXD3 "dev-emac-rgmii_rxd3_state"
+#define EMAC_RGMII_RXC "dev-emac-rgmii_rxc_state"
+#define EMAC_RGMII_RX_CTL "dev-emac-rgmii_rx_ctl_state"
+#define EMAC_PHY_RESET "dev-emac-phy_reset_state"
+#define EMAC_PHY_INTR "dev-emac-phy_intr"
+
 #ifdef PER_CH_INT
 void DWC_ETH_QOS_handle_DMA_Int(struct DWC_ETH_QOS_prv_data *pdata, int chinx, bool);
 int DWC_ETH_QOS_register_per_ch_intr(struct DWC_ETH_QOS_prv_data *pdata, int);
@@ -1854,6 +1944,7 @@ void DWC_ETH_QOS_deregister_per_ch_intr(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_dis_en_ch_intr(struct DWC_ETH_QOS_prv_data *pdata,
 								bool enable);
 #endif
+void DWC_ETH_QOS_defer_phy_isr_work(struct work_struct *work);
 irqreturn_t DWC_ETH_QOS_PHY_ISR(int irq, void *dev_id);
 
 void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata);

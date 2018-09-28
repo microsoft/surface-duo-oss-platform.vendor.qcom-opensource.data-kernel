@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved. */
 /*
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,6 +27,9 @@
 #include <linux/ip.h>
 #include <net/ip.h>
 #include <linux/proc_fs.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
+#include <net/addrconf.h>
 
 static char gsb_drv_name[] = "gsb";
 static struct gsb_ctx *__gc = NULL;
@@ -67,7 +70,7 @@ static void release_wake_source(void)
 	if (pgsb_ctx->do_we_need_wake_source && !pgsb_ctx->wake_source_ref_count)
 	{
 		IPC_TRACE_LOW("Scheduling Inactivity timer\n");
-		if (!pgsb_ctx->inactivity_timer_scheduled)
+		if (!pgsb_ctx->inactivity_timer_scheduled && (atomic_read(&unload_flag) == 0))
 		{
 			schedule_inactivity_timer(INACTIVITY_TIME);
 			pgsb_ctx->inactivity_timer_cnt++;
@@ -109,13 +112,13 @@ static void acquire_wake_source(void)
 
 static void acquire_caller(const char *func_name, u32 line_no)
 {
-	DEBUG_TRACE("%s[%u], calling acquire_wake_source \n", func_name, line_no);
+	IPC_INFO_LOW("%s[%u], calling acquire_wake_source \n", func_name, line_no);
 	acquire_wake_source();
 }
 
 static void release_caller(const char *func_name, u32 line_no)
 {
-	DEBUG_TRACE("%s[%u], calling release_wake_source\n", func_name, line_no);
+	IPC_INFO_LOW("%s[%u], calling release_wake_source\n", func_name, line_no);
 	release_wake_source();
 }
 
@@ -124,7 +127,7 @@ static void release_caller(const char *func_name, u32 line_no)
 
 static void suspend_task(struct work_struct *work)
 {
-	DEBUG_TRACE("suspending all interfaces\n");
+	IPC_INFO_LOW("suspending all interfaces\n");
 	if (suspend_all_bridged_interfaces() != 0)
 	{
 		DEBUG_ERROR("Could not suspend\n");
@@ -133,7 +136,24 @@ static void suspend_task(struct work_struct *work)
 
 static struct timer_list INACTIVITY_TIMER;
 
-static void dump_packet_util(const struct sk_buff *skb)
+static void dump_pkt(char* if_name, void *base, u32 size)
+{
+	if (dynamic_debug)
+	{
+		int i;
+		u32 *cur = (u32 *)base;
+		u8 *byt;
+		DYN_DEBUG("Printing %u bytes from %s\n", size, if_name);
+		for (i = 0; i < size / 4; i++) {
+			byt = (u8 *)(cur + i);
+			DYN_DEBUG("%2d %08x   %02x %02x %02x %02x\n", i, *(cur + i),
+					byt[0], byt[1], byt[2], byt[3]);
+		}
+		DYN_DEBUG("END\n");
+	}
+}
+
+static void dump_skb_util(const struct sk_buff *skb)
 {
 	char buffer[PACKET_DUMP_BUFFER];
 	unsigned int len, printlen;
@@ -209,7 +229,6 @@ static int suspend_all_bridged_interfaces(void)
 		if (!curr->is_ipa_bridge_suspended)
 		{
 			spin_unlock_bh(&pgsb_ctx->gsb_lock);
-
 			if (ipa_bridge_suspend(curr->handle) != 0)
 			{
 				DEBUG_ERROR("failed to suspend if %s\n", curr->if_name);
@@ -217,7 +236,7 @@ static int suspend_all_bridged_interfaces(void)
 			}
 			else
 			{
-				DEBUG_TRACE("if %s suspended\n", curr->if_name);
+				IPC_INFO_LOW("if %s suspended\n", curr->if_name);
 				spin_lock_bh(&pgsb_ctx->gsb_lock);
 				curr->is_ipa_bridge_suspended = true;
 				curr->if_ipa->stats.ipa_suspend_cnt++;
@@ -235,13 +254,13 @@ static int suspend_all_bridged_interfaces(void)
 	pgsb_ctx->do_we_need_wake_source = false;
 	if (pgsb_ctx->is_wake_src_acquired)
 	{
-		DEBUG_TRACE("relaxing wake src\n");
+		IPC_INFO_LOW("relaxing wake src\n");
 		__pm_relax(&pgsb_ctx->gsb_wake_src);
 		pgsb_ctx->is_wake_src_acquired = false;
 	}
 	else
 	{
-		DEBUG_TRACE("no wake src acquired to relax\n");
+		IPC_INFO_LOW("no wake src acquired to relax\n");
 	}
 	spin_unlock_bh(&pgsb_ctx->gsb_wake_lock);
 	return 0;
@@ -257,14 +276,14 @@ static void inactivity_timer_cb(unsigned long data)
 		DEBUG_ERROR("NULL GSB Context passed\n");
 		return;
 	}
-	DEBUG_TRACE("GSB Inactivity timer expired (%ld)\n", jiffies);
+	IPC_INFO_LOW("GSB Inactivity timer expired (%ld)\n", jiffies);
 	spin_lock_bh(&pgsb_ctx->gsb_lock);
 	if (pgsb_ctx->inactivity_timer_scheduled)
 	{
 		pgsb_ctx->inactivity_timer_scheduled = false;
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
 
-		DEBUG_TRACE("no data activity for 200 ms..suspending bridged interfaces\n");
+		IPC_INFO_LOW("no data activity for 200 ms..suspending bridged interfaces\n");
 		schedule_delayed_work(&if_suspend_wq, 0);
 		return;
 	}
@@ -320,12 +339,16 @@ static void release_pending_packets_exp(struct gsb_if_info *if_info)
 			BUG();
 			break;
 		}
+
+		IPC_TRACE_LOW("tagging skb with string %s, skbp= %pK\n", skb->cb, skb);
+		strlcpy(skb->cb, "loop", ((sizeof(skb->cb)) / (sizeof(skb->cb[0]))));
+		skb->protocol = eth_type_trans(skb, skb->dev);
 		//Send Packet to NW stack
 		retval = netif_rx_ni(skb);
 		if (retval != NET_RX_SUCCESS)
 		{
 			DEBUG_ERROR("ERROR sending to nw stack %d\n", retval);
-			dev_kfree_skb(skb);
+			dev_kfree_skb_any(skb);
 			pipa_ctx->stats.exp_if_disconnected_fail++;
 		}
 		else
@@ -383,7 +406,7 @@ static  ssize_t gsb_read_stats(struct file *file,
 	}
 
 	raw_path = dentry_path_raw(file->f_path.dentry, file_name, PATH_MAX);
-	DEBUG_TRACE("rawpath  is %s\n", raw_path);
+	IPC_INFO_LOW("rawpath  is %s\n", raw_path);
 	if (IS_ERR_OR_NULL(raw_path))
 	{
 		DEBUG_ERROR("NULL path found\n");
@@ -394,6 +417,19 @@ static  ssize_t gsb_read_stats(struct file *file,
 	spin_lock_bh(&pgsb_ctx->gsb_lock);
 	if_info = get_node_info_from_ht(raw_path + READ_STATS_OFFSET);
 	spin_unlock_bh(&pgsb_ctx->gsb_lock);
+
+	if (IS_ERR_OR_NULL(if_info))
+	{
+		DEBUG_ERROR("Device not found\n");
+		return ret_cnt;
+	}
+
+	if (unlikely(!if_info->is_connected_to_ipa_bridge))
+	{
+		IPC_WARN_LOW("if %s not connected to IPA bridge yet\n",
+				if_info->if_name);
+		return ret_cnt;
+	}
 
 
 	if (if_info == NULL)
@@ -422,6 +458,12 @@ static  ssize_t gsb_read_stats(struct file *file,
 	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
 			"Total recv from if",
 			if_info->if_ipa->stats.total_recv_from_if);
+	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
+			"exp embedded packet",
+			 if_info->if_ipa->stats.exp_embedded_packet);
+	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
+			"exp GRO TCP packet",
+			 if_info->if_ipa->stats.gro_enabled_packet);
 	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
 			"sent to ipa",
 			if_info->if_ipa->stats.sent_to_ipa);
@@ -634,7 +676,7 @@ struct gsb_if_info* get_node_info_from_ht(char *iface)
 }
 
 
-static int remove_entry_from_ht(struct gsb_if_config *info)
+static int remove_entry_from_ht(char* if_name)
 {
 	u32 key;
 	struct gsb_ctx *pgsb_ctx = __gc;
@@ -645,13 +687,13 @@ static int remove_entry_from_ht(struct gsb_if_config *info)
 		DEBUG_ERROR("Context is NULL\n");
 		return -EFAULT;
 	}
-	key = get_ht_Key(info->if_name);
+	key = get_ht_Key(if_name);
 	hash_for_each_possible(pgsb_ctx->cache_htable_list, curr, cache_ht_node, key)
 	{
 		DEBUG_TRACE("ht iface %s , passed iface %s\n", curr->if_name,
-				info->if_name);
+				if_name);
 		if (strncmp(curr->if_name,
-				info->if_name,
+				if_name,
 				IFNAMSIZ) == 0)
 		{
 			hash_del(&curr->cache_ht_node);
@@ -679,22 +721,34 @@ static int cleanup_entries_from_ht(void)
 	{
 		DEBUG_TRACE("removing iface %s\n", curr->if_name);
 		/* first disconnect this IF from IPA*/
-		if (curr->is_connected_to_ipa_bridge &&
-			ipa_bridge_disconnect(curr->handle) == 0)
+		spin_lock_bh(&pgsb_ctx->gsb_lock);
+		if (curr->is_connected_to_ipa_bridge)
 		{
-			spin_lock_bh(&pgsb_ctx->gsb_lock);
-			curr->is_connected_to_ipa_bridge = false;
-			curr->is_ipa_bridge_suspended = true;
-			curr->if_ipa->stats.ipa_suspend_cnt++;
 			spin_unlock_bh(&pgsb_ctx->gsb_lock);
-			flush_pending_packets(curr);
-			cancel_work_sync(&curr->ipa_resume_task);
-			cancel_work_sync(&curr->ipa_send_task);
-			release_wake_source();
-			DEBUG_INFO("IPA bridge dis connected for if %s",
-					curr->if_name);
+			if (ipa_bridge_disconnect(curr->handle) == 0)
+			{
+				spin_lock_bh(&pgsb_ctx->gsb_lock);
+				curr->is_connected_to_ipa_bridge = false;
+				curr->is_ipa_bridge_suspended = true;
+				curr->if_ipa->stats.ipa_suspend_cnt++;
+				spin_unlock_bh(&pgsb_ctx->gsb_lock);
+				flush_pending_packets(curr);
+				cancel_work_sync(&curr->ipa_resume_task);
+				cancel_work_sync(&curr->ipa_send_task);
+				release_wake_source();
+				DEBUG_INFO("IPA bridge dis connected for if %s\n",
+						curr->if_name);
+			}
+			else
+			{
+				DEBUG_ERROR("Could not disconnect IF from IPA bridge\n");
+				WARN_ON(1);
+			}
 		}
-
+		else
+		{
+			spin_unlock_bh(&pgsb_ctx->gsb_lock);
+		}
 		/* delete IF from cache*/
 		spin_lock_bh(&pgsb_ctx->gsb_lock);
 		hash_del(&curr->cache_ht_node);
@@ -822,17 +876,8 @@ static void gsb_recv_ipa_notification_cb(void *priv, enum ipa_dp_evt_type evt,
 		/* Deliver SKB to network adapter */
 		//IPA may have returned our skb back to us
 		//Lets make sure we tag it so we dont intercept it in stack
-
-		if (skb->cb[0] == '\0')
-		{
-			strlcpy(skb->cb, "isthisloop", ((sizeof(skb->cb)) / (sizeof(skb->cb[0]))));
-			IPC_TRACE_LOW("tagging skb with string %s, skbp= %pK\n", skb->cb, skb);
-		}
-		else
-		{
-			IPC_TRACE_LOW("skb is already tagged %s skbp= %pK\n", skb->cb, skb);
-		}
-
+		IPC_TRACE_LOW("tagging skb with string %s, skbp= %pK\n", skb->cb, skb);
+		strlcpy(skb->cb, "loop", ((sizeof(skb->cb)) / (sizeof(skb->cb[0]))));
 
 		skb->dev = if_info->pdev;
 		skb->protocol = eth_type_trans(skb, skb->dev);
@@ -853,7 +898,7 @@ static void gsb_recv_ipa_notification_cb(void *priv, enum ipa_dp_evt_type evt,
 
 	case IPA_WRITE_DONE:
 		/* SKB send to IPA, safe to free */
-		dev_kfree_skb(skb);
+		dev_kfree_skb_any(skb);
 
 		pgsb_ctx->mem_alloc_skb_free++;
 		pipa_ctx->stats.write_done_from_ipa++;
@@ -862,7 +907,8 @@ static void gsb_recv_ipa_notification_cb(void *priv, enum ipa_dp_evt_type evt,
 		spin_lock_bh(&if_info->flow_ctrl_lock);
 		qlen = if_info->pend_queue.qlen;
 		if_info->ipa_free_desc_cnt++;
-		pipa_ctx->ipa_rx_completion--;
+		if(pipa_ctx->ipa_rx_completion)
+			 pipa_ctx->ipa_rx_completion--;
 		spin_unlock_bh(&if_info->flow_ctrl_lock);
 
 
@@ -908,30 +954,28 @@ static void gsb_recv_dl_dp(void *priv, struct sk_buff *skb)
 
 	if (NULL == if_info)
 	{
-		IPC_ERROR_LOW("if info is NULL, freed?\n");
+		DEBUG_ERROR("if info is NULL, freed?\n");
 		dev_kfree_skb(skb);
 		BUG();
 		return;
 	}
 
-	if (!if_info->net_dev_state)
+	if ((atomic_read(&unload_flag) == 1) || !if_info->net_dev_state)
 	{
-		IPC_ERROR_LOW("%s interface does not exist\n",
-				if_info->user_config.if_name);
-		dev_kfree_skb(skb);
+		dev_kfree_skb_any(skb);
 		return;
 	}
 
 	if (NULL == pgsb_ctx)
 	{
-		IPC_ERROR_LOW("Context is NULL\n");
+		DEBUG_ERROR("Context is NULL\n");
 		dev_kfree_skb(skb);
 		return;
 	}
 
 	if (skb == NULL)
 	{
-		IPC_ERROR_LOW("skb is NULL\n");
+		DEBUG_ERROR("skb is NULL\n");
 		dev_kfree_skb(skb);
 		return;
 	}
@@ -951,8 +995,8 @@ static void gsb_recv_dl_dp(void *priv, struct sk_buff *skb)
 		pgsb_ctx->inactivity_timer_cancelled_cnt++;
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
 	}
-
-
+	// mark the packet as fast forwarded ( for usb hostmode optimizations)
+	skb->fast_forwarded =1;
 	if (dev_queue_xmit(skb) != 0)
 	{
 		IPC_ERROR_LOW("could not forward the packet\n");
@@ -1034,6 +1078,7 @@ static int gsb_bind_if_to_ipa_bridge(struct gsb_if_info *if_info)
 		{
 			/* Reset the flag. */
 			if_info->is_ipa_bridge_initialized = false;
+			DEBUG_INFO("bind cleanup for %s", if_info->if_name);
 		}
 	}
 
@@ -1044,27 +1089,23 @@ static int gsb_bind_if_to_ipa_bridge(struct gsb_if_info *if_info)
 	params_ptr->info.send_dl_skb      = (void *)&gsb_recv_dl_dp;
 	params_ptr->info.ipa_desc_size    = (if_info->ipa_free_desc_cnt + 1) *
 		sizeof(struct sps_iovec);
+
 	//to do: fix mac address
 	switch (if_info->pdev->addr_assign_type)
 	{
 	case NET_ADDR_PERM:
 		memcpy(params_ptr->info.device_ethaddr, if_info->pdev->perm_addr, ETH_ALEN);
-		DEBUG_INFO("NET_ADDR_PERM assigned \n");
 		break;
 
 	case NET_ADDR_RANDOM:
-		DEBUG_TRACE("NET_ADDR_RANDOM assigned\n");
 		break;
 	case NET_ADDR_STOLEN:
-		DEBUG_TRACE("NET_ADDR_STOLEN  assigned\n");
 		break;
 	case NET_ADDR_SET:
 		memcpy(params_ptr->info.device_ethaddr, if_info->pdev->dev_addr, ETH_ALEN);
-		DEBUG_INFO("NET_ADDR_SET assigned\n");
 		break;
 
 	default:
-		DEBUG_TRACE("Invalid assign type\n");
 		return -EFAULT;
 		break;
 	}
@@ -1091,7 +1132,6 @@ static int gsb_bind_if_to_ipa_bridge(struct gsb_if_info *if_info)
 	}
 
 	spin_lock_init(&if_info->flow_ctrl_lock);
-	if_info->flow_ctrl_lock_acquired = false;
 
 	skb_queue_head_init(&if_info->pend_queue);
 
@@ -1113,8 +1153,8 @@ static int gsb_bind_if_to_ipa_bridge(struct gsb_if_info *if_info)
 	INIT_WORK(&if_info->ipa_send_task, gsb_ipa_send_routine);
 	INIT_WORK(&if_info->ipa_resume_task, gsb_ipa_resume_routine);
 
-	DEBUG_INFO("GSB<->IPA bind completed for if %s, MAC:  %X:%X:%X:%X:%X:%X \n",
-			if_info->if_name, MAC_ADDR_ARRAY(if_info->pdev->perm_addr));
+	DEBUG_INFO("GSB<->IPA bind completed for if %s, MAC:  %X:%X:%X:%X:%X:%X, handle %u \n",
+			if_info->if_name, MAC_ADDR_ARRAY(if_info->pdev->perm_addr), if_info->handle);
 
 	/*Idea is if there is no activity for this if
 	after it was registered, then we should suspend.
@@ -1123,7 +1163,7 @@ static int gsb_bind_if_to_ipa_bridge(struct gsb_if_info *if_info)
 	acquire_wake_source();
 	release_wake_source();
 	return retval;
-	}
+}
 
 static long gsb_ioctl(struct file *filp,
 			unsigned int cmd,
@@ -1135,7 +1175,7 @@ static long gsb_ioctl(struct file *filp,
 	struct gsb_if_config *config = NULL;
 	struct gsb_if_info *info = NULL;
 	struct if_ipa_ctx *pif_ipa = NULL;
-
+	ssize_t result = 0;
 
 	if (__gc != NULL)
 	{
@@ -1149,7 +1189,7 @@ static long gsb_ioctl(struct file *filp,
 	switch (cmd)
 	{
 	case GSB_IOC_ADD_IF_CONFIG:
-		DEBUG_TRACE("device %s got GSB_IOC_ADD_IF_CONFIG\n",
+		DEBUG_INFO("device %s got GSB_IOC_ADD_IF_CONFIG\n",
 				gsb_drv_name);
 		payload_size = sizeof(struct gsb_if_config);
 		config = kzalloc(payload_size, GFP_KERNEL);
@@ -1160,15 +1200,18 @@ static long gsb_ioctl(struct file *filp,
 		}
 		pgsb_ctx->mem_alloc_ioctl_buffer++;
 
-		if (copy_from_user(config, (struct gsb_if_config *)arg, payload_size))
+		result = copy_from_user(config, (struct gsb_if_config *)arg, payload_size);
+		if (result > 0  )
 		{
 			retval = -EFAULT;
+			DEBUG_ERROR("issue with copying buffer from user space bytes %d payl %d\n",
+					result, payload_size);
 			break;
 		}
 
-		DEBUG_INFO("iface %s,iface type %d,low wm %d,high wm %d,bw reqd %d\n\n",
+		DEBUG_INFO("iface %s,iface type %d,low wm %d,high wm %d,bw reqd %d, ap_ip %pI4\n",
 				config->if_name, config->if_type, config->if_low_watermark,
-				config->if_high_watermark, config->bw_reqd_in_mb);
+				config->if_high_watermark, config->bw_reqd_in_mb, &config->ap_ip);
 		// add the config to GSB cache
 		if (pgsb_ctx->configured_if_count + 1 > MAX_SUPPORTED_IF_CONFIG)
 		{
@@ -1229,12 +1272,22 @@ static long gsb_ioctl(struct file *filp,
 
 
 	case GSB_IOC_DEL_IF_CONFIG:
-		DEBUG_TRACE("device %s got GSB_IOC_DEL_IF_CONFIG\n",
+		DEBUG_INFO("device %s got GSB_IOC_DEL_IF_CONFIG\n",
 				gsb_drv_name);
+
+		if (pgsb_ctx != NULL && (pgsb_ctx->configured_if_count == 0))
+		{
+			DEBUG_ERROR("GSB cannot delete as there are no configured IF\n");
+			retval = -ENODEV;
+			break;
+		}
+
+
 		payload_size = sizeof(struct gsb_if_config);
 		config = kzalloc(payload_size, GFP_KERNEL);
 		if (!config)
 		{
+			DEBUG_ERROR("Could not allocate memory\n");
 			retval = -ENOMEM;
 			break;
 		}
@@ -1242,20 +1295,21 @@ static long gsb_ioctl(struct file *filp,
 
 		if (copy_from_user(config, (struct gsb_if_config *)arg, payload_size))
 		{
+			DEBUG_ERROR("Failed copying\n");
 			retval = -EFAULT;
 			break;
-		}
-
-		DEBUG_INFO("del iface %s\n\n", config->if_name);
-		if (pgsb_ctx->configured_if_count == 0)
-		{
-			DEBUG_TRACE("GSB cannot delete as there are no configured IF\n");
-			retval =  -EPERM;
 		}
 
 		spin_lock_bh(&pgsb_ctx->gsb_lock);
 		info = get_node_info_from_ht(config->if_name);
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
+
+		if (info == NULL)
+		{
+			DEBUG_ERROR("Device is not configured with GSB\n");
+			retval = -ENODEV;
+			break;
+		}
 
 		/* first disconnect this IF from IPA*/
 		if (info->is_connected_to_ipa_bridge &&
@@ -1270,20 +1324,20 @@ static long gsb_ioctl(struct file *filp,
 			cancel_work_sync(&info->ipa_resume_task);
 			cancel_work_sync(&info->ipa_send_task);
 			release_wake_source();
-			DEBUG_INFO("IPA bridge dis connected for if %s",
+			DEBUG_INFO("IPA bridge dis connected for if %s\n",
 					info->if_name);
 		}
 
 		/* delete IF from cache*/
 		spin_lock_bh(&pgsb_ctx->gsb_lock);
-		if (!remove_entry_from_ht(config))
+		if (!remove_entry_from_ht(config->if_name))
 		{
 			DEBUG_INFO("%s removed successfully\n", config->if_name);
 			pgsb_ctx->configured_if_count--;
 		}
 		else
 		{
-			DEBUG_TRACE("some failure..may be if not in cache\n");
+			DEBUG_ERROR("some failure..may be if not in cache\n");
 		}
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
 
@@ -1297,11 +1351,22 @@ static long gsb_ioctl(struct file *filp,
 			break;
 		}
 
+	if (info->is_ipa_bridge_initialized)
+	{
 		if (ipa_bridge_cleanup(info->handle) != 0)
 		{
 			DEBUG_ERROR("issue in cleaning up IPA bridge for if %s\n",
 					info->if_name);
 		}
+		else
+		{
+			DEBUG_INFO("bind cleanup for %s", info->if_name);
+		}
+	}
+	else
+	{
+		DEBUG_INFO("IPA was never initialized for %s, No clean up reqd", info->if_name);
+	}
 
 		/* can free memory now*/
 		kfree(info);
@@ -1482,7 +1547,7 @@ static void gsb_ipa_resume_routine(struct work_struct *work)
 		}
 		else
 		{
-			DEBUG_TRACE("if %s resumed\n", if_info->if_name);
+			IPC_INFO_LOW("if %s resumed\n", if_info->if_name);
 			spin_lock_bh(&pgsb_ctx->gsb_lock);
 			if_info->is_ipa_bridge_suspended = false;
 			//cancel  inactivity timer if scheduled
@@ -1509,6 +1574,12 @@ static int gsb_pm_handler(struct notifier_block *nb,
 	if (IS_ERR_OR_NULL(pgsb_ctx))
 	{
 		DEBUG_ERROR("NULL Context\n");
+		return NOTIFY_DONE;
+	}
+
+	if (pgsb_ctx->module_exiting || (atomic_read(&unload_flag) == 1))
+	{
+		IPC_INFO_LOW("Module is exiting , Ignore\n");
 		return NOTIFY_DONE;
 	}
 
@@ -1557,6 +1628,11 @@ static int gsb_device_event(struct notifier_block *this, unsigned long event, vo
 	struct gsb_ctx *pgsb_ctx = __gc;
 	struct gsb_if_info *if_info = NULL;
 
+	if (pgsb_ctx->module_exiting || (atomic_read(&unload_flag) == 1))
+	{
+		IPC_INFO_LOW("Module is exiting , Ignore\n");
+		return NOTIFY_DONE;
+	}
 
 	if (IS_ERR_OR_NULL(pgsb_ctx))
 	{
@@ -1572,12 +1648,12 @@ static int gsb_device_event(struct notifier_block *this, unsigned long event, vo
 
 		if (if_info == NULL)
 		{
-			DEBUG_TRACE("iface %s not registered with gsb\n", dev->name);
+			IPC_INFO_LOW("iface %s not registered with gsb\n", dev->name);
 			return NOTIFY_DONE;
 		}
 	}
 
-	DEBUG_INFO("event %d received for iface %s\n", event, dev->name);
+	IPC_INFO_LOW("event 0x%X received for iface %s\n", event, dev->name);
 
 	switch (event)
 	{
@@ -1612,8 +1688,7 @@ static int gsb_device_event(struct notifier_block *this, unsigned long event, vo
 		DEBUG_TRACE("Net dev  %s is registered\n", dev->name);
 		break;
 	case NETDEV_PRE_UP:
-		DEBUG_TRACE("Net %s about to come UP\n", dev->name);
-
+		DEBUG_INFO("Net %s about to come UP\n", dev->name);
 		//IPA should be ready most of the time but we still have
 		//this code to be sure.
 		if (!pgsb_ctx->is_ipa_ready)
@@ -1648,9 +1723,11 @@ static int gsb_device_event(struct notifier_block *this, unsigned long event, vo
 
 	case NETDEV_UP:
 		DEBUG_TRACE("Net dev  %s is up\n", dev->name);
+		spin_lock_bh(&pgsb_ctx->gsb_lock);
 		if (!if_info->is_connected_to_ipa_bridge &&
 			if_info->is_ipa_bridge_initialized)
 		{
+			spin_unlock_bh(&pgsb_ctx->gsb_lock);
 			if (ipa_bridge_connect(if_info->handle) == 0)
 			{
 				spin_lock_bh(&pgsb_ctx->gsb_lock);
@@ -1658,11 +1735,10 @@ static int gsb_device_event(struct notifier_block *this, unsigned long event, vo
 				if_info->is_ipa_bridge_suspended = false;
 				if_info->net_dev_state = true;
 				spin_unlock_bh(&pgsb_ctx->gsb_lock);
-
 				acquire_wake_source();
 				DEBUG_INFO("IPA bridge connected on NETDEV_UP for if %s",
 						if_info->if_name);
-
+				break;
 			}
 			else
 			{
@@ -1670,7 +1746,7 @@ static int gsb_device_event(struct notifier_block *this, unsigned long event, vo
 						if_info->if_name);
 			}
 		}
-
+		spin_unlock_bh(&pgsb_ctx->gsb_lock);
 		break;
 	case NETDEV_CHANGE:
 		DEBUG_TRACE("Net dev  %s changed\n", dev->name);
@@ -1689,11 +1765,6 @@ static int gsb_device_event(struct notifier_block *this, unsigned long event, vo
 	}
 	return NOTIFY_DONE;
 }
-
-
-
-
-
 
 /*Do we need this for first version. From discussion, it is assumed that IPA
   is ready but for ODU to bind with IF following steps need to be performed
@@ -1732,14 +1803,15 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 	u32 pkts_to_send, qlen = 0;
 	unsigned char *ptr = NULL;
 	struct sk_buff *pend_skb;
-
+	struct iphdr *ipheader = NULL;
+	__be32 dst_ip = 0;
+	int off = 0;
 
 	if (NULL == pgsb_ctx)
 	{
 		IPC_ERROR_LOW("Context is NULL\n");
 		return -EFAULT;
 	}
-
 
 	spin_lock_bh(&pgsb_ctx->gsb_lock);
 	if (!IS_ERR_OR_NULL(skb))
@@ -1753,7 +1825,7 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 	}
 	spin_unlock_bh(&pgsb_ctx->gsb_lock);
 
-	if (if_info == NULL)
+	if (if_info == NULL || if_info->pdev == NULL )
 	{
 		IPC_TRACE_LOW("device %s not registered to GSB\n", skb->dev->name);
 		return 0;
@@ -1764,15 +1836,50 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		if_info->if_ipa->stats.total_recv_from_if++;
 	}
 
-	if (strncmp(skb->cb, "isthisloop", TAG_LENGTH) == 0)
+	if ((atomic_read(&unload_flag) == 1) || pgsb_ctx->module_exiting)
+	{
+		return 0;
+	}
+
+	is_pkt_ipv4 = is_ipv4_pkt(skb);
+	is_pkt_ipv6 = is_ipv6_pkt(skb);
+
+	if (if_info->user_config.ap_ip && is_pkt_ipv4)
+	{
+		/*if packet is destined for A7 release it to stack*/
+		ipheader = (struct iphdr *)skb_network_header(skb);
+		if (ipheader != NULL)
+		{
+			dst_ip = ipheader->daddr;
+			IPC_TRACE_LOW("packet from %s is destined for IP %pI4 , hex: 0x%X\n",
+					skb->dev->name, &dst_ip, dst_ip);
+			if (dst_ip == if_info->user_config.ap_ip)
+			{
+				IPC_TRACE_LOW("packet from %s is destined for A7 IP %pI4\n",
+						skb->dev->name, &if_info->user_config.ap_ip );
+				if_info->if_ipa->stats.exp_embedded_packet++;
+				/*releasing to linux stack */
+				return 0;
+			}
+		}
+	}
+
+	if (strncmp(skb->cb, "loop", TAG_LENGTH) == 0)
 	{
 		IPC_TRACE_LOW("tagged skb with string %s found, skbp= %pK\n", skb->cb, skb);
 		return 0;
 	}
 
-
-	is_pkt_ipv4 = is_ipv4_pkt(skb);
-	is_pkt_ipv6 = is_ipv6_pkt(skb);
+	/*if GRO is enabled for netdev device, let the TCP packet take exception path*/
+	if ((if_info->pdev->features & NETIF_F_GRO) &&
+		((is_pkt_ipv4 && (ip_hdr(skb)->protocol == IPPROTO_TCP)) ||
+			(is_pkt_ipv6 && (ipv6_find_hdr(skb, &off, -1, NULL, NULL) == IPPROTO_TCP))))
+	{
+		IPC_TRACE_LOW("GRO Packet Recvd\n");
+		if_info->if_ipa->stats.gro_enabled_packet++;
+		/*releasing to linux stack */
+		return 0;
+	}
 
 	/* if if not connected to IPA, ther eis nothing we could do here*/
 	if (unlikely(!if_info->is_connected_to_ipa_bridge))
@@ -1780,8 +1887,10 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		IPC_TRACE_LOW("if %s not connected to IPA bridge yet\n",
 				if_info->if_name);
 		if_info->if_ipa->stats.exception_ipa_not_connected++;
+		/*releasing to linux stack */
 		return 0;
 	}
+
 	/* If Packet is an IP Packet and non-fragmented then Send it to
 		IPA Bridge Driver*/
 	if (is_non_ip_pkt(skb) ||
@@ -1790,24 +1899,21 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 	{
 		/* Send packet to network stack */
 		if (is_non_ip_pkt(skb))
-			{
+		{
 			if_info->if_ipa->stats.exception_non_ip_packet++;
-			}
+		}
 		else if (is_ip_frag_pkt(skb))
-			{
+		{
 			if_info->if_ipa->stats.exception_fragmented++;
-			}
+		}
+		/*releasing to linux stack */
 		return 0;
 	}
-
 
 	// check if if is suspended
 	spin_lock_bh(&pgsb_ctx->gsb_lock);
 	if (if_info->is_ipa_bridge_suspended)
 	{
-		//To do : need to see if we can do anything for
-		//if IPA bridge to resume here itself.
-		//at present let this packet go to nw stack
 		queue_work(gsb_wq, &if_info->ipa_resume_task);
 		IPC_TRACE_LOW("waiting for if %s to resume\n",
 				if_info->if_name);
@@ -1815,7 +1921,7 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
 		return 0;
 	}
-	// cancel inactivity timer ...if scheduled
+	/* cancel inactivity timer ...if scheduled*/
 	if (pgsb_ctx->inactivity_timer_scheduled)
 	{
 		pgsb_ctx->inactivity_timer_scheduled = false;
@@ -1823,7 +1929,6 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		pgsb_ctx->inactivity_timer_cancelled_cnt++;
 	}
 	spin_unlock_bh(&pgsb_ctx->gsb_lock);
-
 
 	spin_lock_bh(&if_info->flow_ctrl_lock);
 	qlen = if_info->pend_queue.qlen;
@@ -1837,7 +1942,7 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		ret = GSB_ACCEPT;
 		goto unlock_and_schedule;
 	}
-	//fix skb for IPA
+	/*fix skb for IPA*/
 	if (skb_headroom(skb) > ETH_HLEN)
 	{
 		skb_reset_mac_header(skb);
@@ -1852,9 +1957,7 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		return 0;
 	}
 
-
 	/* Remove extra padding if the rcv_pkt_len == 64 */
-	//to do only do for eth, dont do it for wlan
 	if (skb->len == ETH_ZLEN && if_info->user_config.if_type == ETH_TYPE)
 	{
 		IPC_TRACE_LOW("remove_padding\n");
@@ -1934,7 +2037,7 @@ static ssize_t gsb_proc_write_cb(struct file *file,const char *buf,size_t count,
 	if (sscanf(tmp_buff, "%du", &tmp) < 0)
 		pr_err("sscanf failed\n");
 	else {
-		if (tmp) {
+		if (tmp == 1) {
 			if (!ipc_gsb_log_ctxt_low) {
 					ipc_gsb_log_ctxt_low = ipc_log_context_create(
 						IPCLOG_STATE_PAGES, "gsb_low", 0);
@@ -1943,10 +2046,21 @@ static ssize_t gsb_proc_write_cb(struct file *file,const char *buf,size_t count,
 				pr_err("failed to create ipc gsb low context\n");
 				return -EFAULT;
 			}
-		} else {
-			if (ipc_gsb_log_ctxt_low)
+		} else if (tmp == 2){
+			pr_info("[GSB] dynamic debug enabled\n");
+			dynamic_debug = true;
+		}
+		else if (tmp == 3){
+			pr_info("[GSB] Unload flag set\n");
+			atomic_set(&unload_flag, 1);
+		}
+		else {
+			if (ipc_gsb_log_ctxt_low) {
 				ipc_log_context_destroy(ipc_gsb_log_ctxt_low);
 				ipc_gsb_log_ctxt_low = NULL;
+			}
+			pr_info("[GSB] dynamic debug disabled\n");
+			dynamic_debug = false;
 		}
 	}
 	gsb_enable_ipc_low = tmp;
@@ -1959,7 +2073,6 @@ static int __init gsb_init_module(void)
 	int retval = -1;
 	struct gsb_ctx *pgsb_ctx = NULL;
 	DEBUG_INFO("gsb enter %s\n", DRV_VERSION);
-
 
 	if (__gc)
 	{
@@ -1979,7 +2092,7 @@ static int __init gsb_init_module(void)
 	proc_file_ops.owner = THIS_MODULE;
 	proc_file_ops.read =  gsb_proc_read_cb;
 	proc_file_ops.write = gsb_proc_write_cb;
-	if((proc_file = proc_create("gsb_enable_ipc_low", 0, NULL,
+	if((proc_file = proc_create("gsb_proc_entry", 0, NULL,
 		&proc_file_ops)) == NULL) {
 		pr_err(" error creating proc entry!\n");
 		return -EINVAL;
@@ -1994,6 +2107,7 @@ static int __init gsb_init_module(void)
 	else
 	{
 		__gc = pgsb_ctx;
+		pgsb_ctx->module_exiting = false;
 	}
 
 	gsb_wq  = create_singlethread_workqueue("gsb");
@@ -2013,7 +2127,6 @@ static int __init gsb_init_module(void)
 	spin_lock_init(&pgsb_ctx->gsb_lock);
 	pgsb_ctx->gsb_lock_acquired = false;
 
-
 	wakeup_source_init(&pgsb_ctx->gsb_wake_src, "gsb_wake_source");
 	pgsb_ctx->do_we_need_wake_source = false;
 	pgsb_ctx->is_wake_src_acquired = false;
@@ -2022,8 +2135,6 @@ static int __init gsb_init_module(void)
 	pgsb_ctx->mem_alloc_ioctl_buffer = 0;
 	pgsb_ctx->mem_alloc_read_stats_buffer = 0;
 	pgsb_ctx->mem_alloc_skb_free = 0;
-
-
 
 	spin_lock_init(&pgsb_ctx->gsb_wake_lock);
 	pgsb_ctx->gsb_wake_lock_acquired = false;
@@ -2052,8 +2163,6 @@ static int __init gsb_init_module(void)
 		DEBUG_ERROR("Initializing IOCTL failed\n");
 		goto failed_ioctl_initialization;
 	}
-
-
 
 	//create hash table
 	hash_init(pgsb_ctx->cache_htable_list);
@@ -2116,21 +2225,19 @@ static void __exit gsb_exit_module(void)
 	int ret = 0;
 	struct gsb_ctx *pgsb_ctx = __gc;
 
+	DEBUG_INFO("exiting Module\n");
 	if (NULL == pgsb_ctx)
 	{
 		DEBUG_ERROR("Context is NULL\n");
 		return -EFAULT;
 	}
-
-	unregister_netdevice_notifier(&pgsb_ctx->gsb_dev_notifier);
-	unregister_pm_notifier(&pgsb_ctx->gsb_pm_notifier);
+	pgsb_ctx->module_exiting = true;
 
 	/*lets delete the if  from cache so no more packets are
 		processed from stack*/
 	cancel_delayed_work_sync(&if_suspend_wq);
 	cleanup_entries_from_ht();
 	destroy_workqueue(gsb_wq);
-
 	/*
 	 * Unregister our receive callback so we dont intercept at all
 	 */
@@ -2140,6 +2247,8 @@ static void __exit gsb_exit_module(void)
 	ret = del_timer(&INACTIVITY_TIMER);
 	if (ret) DEBUG_TRACE("timer still in use\n");
 
+	unregister_netdevice_notifier(&pgsb_ctx->gsb_dev_notifier);
+	unregister_pm_notifier(&pgsb_ctx->gsb_pm_notifier);
 
 	if (pgsb_ctx->is_wake_src_acquired)
 	{

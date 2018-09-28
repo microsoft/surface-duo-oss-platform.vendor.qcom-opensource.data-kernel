@@ -527,8 +527,19 @@ static void DWC_ETH_QOS_restart_dev(struct DWC_ETH_QOS_prv_data *pdata,
 	struct desc_if_struct *desc_if = &pdata->desc_if;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct DWC_ETH_QOS_rx_queue *rx_queue = NULL;
+	int reg_val;
 
 	DBGPR("-->DWC_ETH_QOS_restart_dev\n");
+
+	EMACERR("FBE received for queue = %d\n", qinx);
+	DMA_CHTDR_CURTDESAPTR_UDFRD(qinx, reg_val);
+	EMACERR("EMAC_DMA_CHi_CURRENT_APP_TXDESC = %#x\n", reg_val);
+	DMA_CHRDR_CURRDESAPTR_UDFRD(qinx, reg_val);
+	EMACERR("EMAC_DMA_CHi_CURRENT_APP_RXDESC = %#x\n", reg_val);
+	DMA_CHTBAR_CURTBUFAPTR_UDFRD(qinx, reg_val);
+	EMACERR("EMAC_DMA_CHi_CURRENT_APP_TXBUFFER = %#x\n", reg_val);
+	DMA_CHRBAR_CURRBUFAPTR_UDFRD(qinx, reg_val);
+	EMACERR("EMAC_DMA_CHi_CURRENT_APP_RXBUFFER = %#x\n", reg_val);
 
 	netif_stop_subqueue(pdata->dev, qinx);
 
@@ -710,6 +721,25 @@ void DWC_ETH_QOS_handle_DMA_Int(struct DWC_ETH_QOS_prv_data *pdata, int chinx, b
 }
 #endif
 
+/**
+ * DWC_ETH_QOS_defer_phy_isr_work - Scheduled by the phy isr
+ *  @work: work_struct
+ */
+void DWC_ETH_QOS_defer_phy_isr_work(struct work_struct *work)
+{
+	struct DWC_ETH_QOS_prv_data *pdata =
+		container_of(work, struct DWC_ETH_QOS_prv_data, emac_phy_work);
+
+	EMACDBG("Enter\n");
+
+	if (pdata->clks_suspended)
+		wait_for_completion(&pdata->clk_enable_done);
+
+	DWC_ETH_QOS_handle_phy_interrupt(pdata);
+
+	EMACDBG("Exit\n");
+}
+
 /*!
  * \brief Interrupt Service Routine
  * \details Interrupt Service Routine for PHY interrupt
@@ -722,8 +752,12 @@ void DWC_ETH_QOS_handle_DMA_Int(struct DWC_ETH_QOS_prv_data *pdata, int chinx, b
 
 irqreturn_t DWC_ETH_QOS_PHY_ISR(int irq, void *dev_data)
 {
-	/* PHY Interrupt */
-	DWC_ETH_QOS_handle_phy_interrupt((struct DWC_ETH_QOS_prv_data *)dev_data);
+	struct DWC_ETH_QOS_prv_data *pdata =
+		(struct DWC_ETH_QOS_prv_data *)dev_data;
+
+	/* Queue the work in system_wq */
+	queue_work(system_wq, &pdata->emac_phy_work);
+
 	return IRQ_HANDLED;
 }
 
@@ -1802,7 +1836,7 @@ static int DWC_ETH_QOS_open(struct net_device *dev)
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct desc_if_struct *desc_if = &pdata->desc_if;
 
-	DBGPR("-->DWC_ETH_QOS_open\n");
+	EMACDBG("-->DWC_ETH_QOS_open\n");
 
 #ifdef DWC_ETH_QOS_CONFIG_PGTEST
 	if (pdata->irq_number == 0) {
@@ -1877,14 +1911,14 @@ static int DWC_ETH_QOS_open(struct net_device *dev)
 #ifndef DWC_ETH_QOS_CONFIG_PGTEST
 	netif_tx_start_all_queues(dev);
 
-	if (pdata->ipa_enabled && DWC_ETH_QOS_is_phy_link_up(pdata)) {
+	if (pdata->ipa_enabled) {
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DEV_OPEN);
 	}
 #else
 	netif_tx_disable(dev);
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
 
-	DBGPR("<--DWC_ETH_QOS_open\n");
+	EMACDBG("<--DWC_ETH_QOS_open\n");
 
 	return ret;
 
@@ -2336,7 +2370,7 @@ UINT DWC_ETH_QOS_get_total_desc_cnt(struct DWC_ETH_QOS_prv_data *pdata,
 	return count;
 }
 
-UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb,
+inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb,
 	struct DWC_ETH_QOS_prv_data *pdata)
 {
 	UINT ret = DEFAULT_INT_MOD;
@@ -2499,7 +2533,10 @@ static int DWC_ETH_QOS_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if ((pdata->hw_feat.tsstssel == 0) || (pdata->hwts_tx_en == 0))
 		skb_tx_timestamp(skb);
 
-	int_mod = DWC_ETH_QOS_cal_int_mod(skb, pdata);
+	/*For TSO packets, IOC bit is to be set to 1 in order to avoid data stall*/
+	if (!tso)
+		int_mod = DWC_ETH_QOS_cal_int_mod(skb, pdata);
+
 	/* configure required descriptor fields for transmission */
 	hw_if->pre_xmit(pdata, qinx, int_mod);
 
@@ -2763,7 +2800,9 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct desc_if_struct *desc_if = &pdata->desc_if;
 #ifndef DWC_ETH_QOS_CERTIFICATION_PKTBURSTCNT
+#ifdef DWC_ETH_QOS_ENABLE_ERROR_COUNTERS
 	int err_incremented;
+#endif
 #endif
 	unsigned int tstamp_taken = 0;
 	unsigned long flags;
@@ -2813,6 +2852,7 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 				}
 			}
 
+#ifdef DWC_ETH_QOS_ENABLE_ERROR_COUNTERS
 			err_incremented = 0;
 			if (hw_if->tx_window_error) {
 				if (hw_if->tx_window_error(txptr)) {
@@ -2848,6 +2888,7 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 
 			if (err_incremented == 1)
 				dev->stats.tx_errors++;
+#endif
 
 			pdata->xstats.q_tx_pkt_n[qinx]++;
 			pdata->xstats.tx_pkt_n++;
@@ -3304,8 +3345,9 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 				pdata->tcp_pkt =
 					DWC_ETH_QOS_check_for_tcp_payload(RX_NORMAL_DESC);
 			}
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 			dev->last_rx = jiffies;
+#endif
 			/* update the statistics */
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += skb->len;
@@ -3573,7 +3615,9 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 					DWC_ETH_QOS_check_for_tcp_payload(RX_NORMAL_DESC);
 			}
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 			dev->last_rx = jiffies;
+#endif
 			/* update the statistics */
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += skb->len;
@@ -3745,14 +3789,18 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 						   RX_NORMAL_DESC);
 				}
 
-				dev->last_rx = jiffies;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+			dev->last_rx = jiffies;
+#endif
 				/* update the statistics */
 				dev->stats.rx_packets++;
 				dev->stats.rx_bytes += skb->len;
 				DWC_ETH_QOS_receive_skb(pdata, dev, skb, qinx);
 				received++;
 			} else {
+#ifdef DWC_ETH_QOS_ENABLE_RX_DESC_DUMP
 				dump_rx_desc(qinx, RX_NORMAL_DESC, desc_data->cur_rx);
+#endif
 				if (!(RX_NORMAL_DESC->RDES3 &
 					  DWC_ETH_QOS_RDESC3_LD))
 					DBGPR("Received oversized pkt, spanned across multiple desc\n");
@@ -3903,7 +3951,11 @@ int DWC_ETH_QOS_poll_mq(struct napi_struct *napi, int budget)
 		} else {
 
 			spin_lock_irqsave(&pdata->lock, flags);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 			__napi_complete(napi);
+#else
+			napi_complete_done(napi, received);
+#endif
 			/* Enable all ch RX interrupt */
 			DWC_ETH_QOS_enable_all_ch_rx_interrpt(pdata);
 			spin_unlock_irqrestore(&pdata->lock, flags);
@@ -4789,7 +4841,7 @@ static VOID DWC_ETH_QOS_config_timer_registers(
 		 * 2^32 * 50000000 ==> (50000000 << 32)
 		 */
 		temp = (u64)(50000000ULL << 32);
-		pdata->default_addend = div_u64(temp, 62500000);
+		pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
 
 		hw_if->config_addend(pdata->default_addend);
 
@@ -5514,7 +5566,13 @@ static int DWC_ETH_QOS_handle_hwtstamp_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 	if (!pdata->hwts_tx_en && !pdata->hwts_rx_en) {
 		/* disable hw time stamping */
 		hw_if->config_hw_time_stamping(VARMAC_TCR);
+
+		DWC_ETH_QOS_disable_ptp_clk(&pdata->pdev->dev);
 	} else {
+
+		if(DWC_ETH_QOS_enable_ptp_clk(&pdata->pdev->dev))
+			return -EFAULT;
+
 		VARMAC_TCR = (MAC_TCR_TSENA | MAC_TCR_TSCFUPDT |
 				MAC_TCR_TSCTRLSSR |
 				tstamp_all | ptp_v2 | ptp_over_ethernet |
@@ -5545,7 +5603,7 @@ static int DWC_ETH_QOS_handle_hwtstamp_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 		 *
 		 */
 		temp = (u64)(50000000ULL << 32);
-		pdata->default_addend = div_u64(temp, 62500000);
+		pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
 
 		hw_if->config_addend(pdata->default_addend);
 
@@ -5691,10 +5749,10 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	   if (copy_from_user(&req, ifr->ifr_ifru.ifru_data,
 			   sizeof(struct ifr_data_struct)))
 			return -EFAULT;
-		
+
 		ret = DWC_ETH_QOS_handle_prv_ioctl(pdata, &req);
 		req.command_error = ret;
-		
+
 		ret = (copy_to_user(ifr->ifr_ifru.ifru_data, &req,
 		     sizeof(struct ifr_data_struct))) ? -EFAULT : 0;
 		break;
@@ -5804,8 +5862,6 @@ u16	DWC_ETH_QOS_select_queue(struct net_device *dev,
 	UINT qtag_type, eth_type, priority;
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 
-   EMACDBG("\n");
-
 	/* Retrieve ETH type */
 	eth_type = GET_ETH_TYPE(skb->data);
 
@@ -5824,9 +5880,6 @@ u16	DWC_ETH_QOS_select_queue(struct net_device *dev,
 	}
 	else /* VLAN tagged IP packet or any other non vlan packets (PTP)*/
 		txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
-
-
-	EMACDBG("txqueue-select:%d\n", txqueue_select);
 
 	if (pdata->ipa_enabled && txqueue_select == IPA_DMA_TX_CH) {
 	   EMACERR("TX Channel [%d] is not a valid for SW path \n", txqueue_select);
@@ -6023,12 +6076,16 @@ INT DWC_ETH_QOS_powerdown(struct net_device *dev, UINT wakeup_type,
 	if (caller == DWC_ETH_QOS_DRIVER_CONTEXT)
 		netif_device_detach(dev);
 
+	/* Stop SW TX before DMA TX in HW */
 	netif_tx_disable(dev);
-	DWC_ETH_QOS_all_ch_napi_disable(pdata);
-
-	/* stop DMA TX/RX */
 	DWC_ETH_QOS_stop_all_ch_tx_dma(pdata);
+
+	/* Disable MAC TX/RX */
+	hw_if->stop_mac_tx_rx();
+
+	/* Stop SW RX after DMA RX in HW */
 	DWC_ETH_QOS_stop_all_ch_rx_dma(pdata);
+	DWC_ETH_QOS_all_ch_napi_disable(pdata);
 
 	/* enable power down mode by programming the PMT regs */
 	if (wakeup_type & DWC_ETH_QOS_REMOTE_WAKEUP)
@@ -6037,8 +6094,6 @@ INT DWC_ETH_QOS_powerdown(struct net_device *dev, UINT wakeup_type,
 		hw_if->enable_magic_pmt();
 	if (wakeup_type & DWC_ETH_QOS_PHY_INTR_WAKEUP)
 		enable_irq_wake(pdata->phy_irq);
-	if (wakeup_type & DWC_ETH_QOS_EMAC_INTR_WAKEUP)
-		enable_irq_wake(pdata->irq_number);
 
 	pdata->power_down_type = wakeup_type;
 
@@ -6104,28 +6159,23 @@ INT DWC_ETH_QOS_powerup(struct net_device *dev, UINT caller)
 		pdata->power_down_type &= ~DWC_ETH_QOS_PHY_INTR_WAKEUP;
 	}
 
-	if (pdata->power_down_type & DWC_ETH_QOS_EMAC_INTR_WAKEUP) {
-		disable_irq_wake(pdata->irq_number);
-		pdata->power_down_type &= ~DWC_ETH_QOS_EMAC_INTR_WAKEUP;
-	}
-
 	pdata->power_down = 0;
 
 	if (pdata->phydev)
 		phy_start(pdata->phydev);
 
-	/* enable MAC TX/RX */
-	hw_if->start_mac_tx_rx();
-
-	/* enable DMA TX/RX */
-	DWC_ETH_QOS_start_all_ch_tx_dma(pdata);
-	DWC_ETH_QOS_start_all_ch_rx_dma(pdata);
-
 	if (caller == DWC_ETH_QOS_DRIVER_CONTEXT)
 		netif_device_attach(dev);
 
+	/* Start RX DMA in HW after SW RX (NAPI) */
 	DWC_ETH_QOS_napi_enable_mq(pdata);
+	DWC_ETH_QOS_start_all_ch_rx_dma(pdata);
 
+	/* enable MAC TX/RX */
+	hw_if->start_mac_tx_rx();
+
+	/* Start TX DMA in HW before SW TX */
+	DWC_ETH_QOS_start_all_ch_tx_dma(pdata);
 	netif_tx_start_all_queues(dev);
 
 	mutex_unlock(&pdata->pmt_lock);
@@ -6345,6 +6395,7 @@ static void DWC_ETH_QOS_program_avb_algorithm(
 	struct DWC_ETH_QOS_avb_algorithm l_avb_struct, *u_avb_struct =
 		(struct DWC_ETH_QOS_avb_algorithm *)req->ptr;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
+	struct DWC_ETH_QOS_avb_algorithm_params *avb_params;
 
 	DBGPR("-->DWC_ETH_QOS_program_avb_algorithm\n");
 
@@ -6352,14 +6403,26 @@ static void DWC_ETH_QOS_program_avb_algorithm(
 			   sizeof(struct DWC_ETH_QOS_avb_algorithm)))
 		dev_alert(&pdata->pdev->dev, "Failed to fetch AVB Struct info from user\n");
 
+	if (pdata->speed == SPEED_1000)
+		avb_params = &l_avb_struct.speed1000params;
+	else
+		avb_params = &l_avb_struct.speed100params;
+
+	/*Application uses 1 for CLASS A traffic and 2 for CLASS B traffic
+	  Configure right channel accordingly*/
+	if (l_avb_struct.qinx == 1)
+		l_avb_struct.qinx = CLASS_A_TRAFFIC_TX_CHANNEL;
+	else if (l_avb_struct.qinx == 2)
+		l_avb_struct.qinx = CLASS_B_TRAFFIC_TX_CHANNEL;
+
 	hw_if->set_tx_queue_operating_mode(l_avb_struct.qinx,
 		(UINT)l_avb_struct.op_mode);
 	hw_if->set_avb_algorithm(l_avb_struct.qinx, l_avb_struct.algorithm);
 	hw_if->config_credit_control(l_avb_struct.qinx, l_avb_struct.cc);
-	hw_if->config_send_slope(l_avb_struct.qinx, l_avb_struct.send_slope);
-	hw_if->config_idle_slope(l_avb_struct.qinx, l_avb_struct.idle_slope);
-	hw_if->config_high_credit(l_avb_struct.qinx, l_avb_struct.hi_credit);
-	hw_if->config_low_credit(l_avb_struct.qinx, l_avb_struct.low_credit);
+	hw_if->config_send_slope(l_avb_struct.qinx, avb_params->send_slope);
+	hw_if->config_idle_slope(l_avb_struct.qinx, avb_params->idle_slope);
+	hw_if->config_high_credit(l_avb_struct.qinx, avb_params->hi_credit);
+	hw_if->config_low_credit(l_avb_struct.qinx, avb_params->low_credit);
 
 	DBGPR("<--DWC_ETH_QOS_program_avb_algorithm\n");
 }

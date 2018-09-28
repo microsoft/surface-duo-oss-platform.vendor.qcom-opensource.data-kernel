@@ -42,6 +42,7 @@ static const char* IPA_OFFLOAD_EVENT_string[] = {
 	"EV_INVALID",
 	"EV_DEV_OPEN",
 	"EV_DEV_CLOSE",
+	"EV_IPA_READY",
 	"EV_IPA_UC_READY",
 	"EV_PHY_LINK_UP",
 	"EV_PHY_LINK_DOWN",
@@ -52,10 +53,10 @@ static const char* IPA_OFFLOAD_EVENT_string[] = {
 	"EV_IPA_OFFLOAD_MAX"
 };
 
+static int DWC_ETH_QOS_ipa_ready(struct DWC_ETH_QOS_prv_data *pdata);
 static void DWC_ETH_QOS_ipa_ready_cb(void *user_data);
 static int DWC_ETH_QOS_ipa_uc_ready(struct DWC_ETH_QOS_prv_data *pdata);
 static void DWC_ETH_QOS_ipa_uc_ready_cb(void *user_data);
-static void DWC_ETH_QOS_ipaUcRdy_wq(struct work_struct *work);
 
 static int DWC_ETH_QOS_ipa_offload_resume(struct DWC_ETH_QOS_prv_data *pdata);
 static int DWC_ETH_QOS_ipa_offload_suspend(struct DWC_ETH_QOS_prv_data *pdata);
@@ -79,8 +80,6 @@ static int DWC_ETH_QOS_ipa_create_debugfs(struct DWC_ETH_QOS_prv_data *pdata);
 
 /* Cleanup Debugfs Node */
 static int DWC_ETH_QOS_ipa_cleanup_debugfs(struct DWC_ETH_QOS_prv_data *pdata);
-static int DWC_ETH_QOS_ipa_ready(struct DWC_ETH_QOS_prv_data *pdata);
-
 
 /* Generic Bit descirption; reset = 0, set = 1*/
 static const char *bit_status_string[] = {
@@ -108,6 +107,7 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 	EMACINFO("Enter: event=%s\n", IPA_OFFLOAD_EVENT_string[ev]);
 	EMACDBG("PHY_link=%d\n"
 	"emac_dev_ready=%d\n"
+	"ipa_ready=%d\n"
 	"ipa_uc_ready=%d\n"
 	"ipa_offload_init=%d\n"
 	"ipa_offload_conn=%d\n"
@@ -116,6 +116,7 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 	"ipa_offload_link_down=%d\n",
 	DWC_ETH_QOS_is_phy_link_up(pdata),
     pdata->prv_ipa.emac_dev_ready,
+	pdata->prv_ipa.ipa_ready,
 	pdata->prv_ipa.ipa_uc_ready,
 	pdata->prv_ipa.ipa_offload_init,
 	pdata->prv_ipa.ipa_offload_conn,
@@ -126,28 +127,34 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 	switch (ev) {
 	case EV_PHY_LINK_DOWN:
 		{
-			if (!pdata->prv_ipa.emac_dev_ready)
+			if (!pdata->prv_ipa.emac_dev_ready
+					|| !pdata->prv_ipa.ipa_uc_ready
+					|| pdata->prv_ipa.ipa_offload_link_down
+					|| pdata->prv_ipa.ipa_offload_susp
+					|| !pdata->prv_ipa.ipa_offload_conn)
 				break;
 
-			if(pdata->prv_ipa.ipa_uc_ready)
-				ipa_uc_offload_dereg_rdyCB(IPA_UC_NTN);
-
-			if(!DWC_ETH_QOS_disable_ipa_offload(pdata))
+			if (!DWC_ETH_QOS_ipa_offload_suspend(pdata))
 				pdata->prv_ipa.ipa_offload_link_down = true;
-
 		}
 		break;
 	case EV_PHY_LINK_UP:
 		{
-			if (!pdata->prv_ipa.emac_dev_ready || !pdata->prv_ipa.ipa_offload_link_down)
+			if (!pdata->prv_ipa.emac_dev_ready
+					|| !pdata->prv_ipa.ipa_uc_ready
+					|| pdata->prv_ipa.ipa_offload_susp)
 				break;
 
-			if (!pdata->prv_ipa.ipa_uc_ready)
-				DWC_ETH_QOS_ipa_uc_ready(pdata);
-
-			if (pdata->prv_ipa.ipa_uc_ready)
+			/* Link up event is expected only after link down */
+			if (pdata->prv_ipa.ipa_offload_link_down) {
+				DWC_ETH_QOS_ipa_offload_resume(pdata);
+			}
+			/* This link up is expected only after boot up with cable disconnected */
+			/* FIX ME for back to back link up events */
+			else if(pdata->prv_ipa.emac_dev_ready
+					  && pdata->prv_ipa.ipa_uc_ready) {
 				DWC_ETH_QOS_enable_ipa_offload(pdata);
-
+			}
 
 			pdata->prv_ipa.ipa_offload_link_down = false;
 		}
@@ -156,11 +163,40 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 		{
 			pdata->prv_ipa.emac_dev_ready = true;
 
-			if (!pdata->prv_ipa.ipa_uc_ready)
-				DWC_ETH_QOS_ipa_uc_ready(pdata);
+			if (!pdata->prv_ipa.ipa_ready)
+				DWC_ETH_QOS_ipa_ready(pdata);
 
-			if (pdata->prv_ipa.ipa_uc_ready)
-				DWC_ETH_QOS_enable_ipa_offload(pdata);
+			if (pdata->prv_ipa.ipa_ready) {
+				if (!pdata->prv_ipa.ipa_offload_init) {
+					if(!DWC_ETH_QOS_ipa_offload_init(pdata))
+						pdata->prv_ipa.ipa_offload_init = true;
+				}
+
+				if (!pdata->prv_ipa.ipa_uc_ready)
+					DWC_ETH_QOS_ipa_uc_ready(pdata);
+
+				if (pdata->prv_ipa.ipa_uc_ready
+					&& DWC_ETH_QOS_is_phy_link_up(pdata))
+						DWC_ETH_QOS_enable_ipa_offload(pdata);
+			}
+		}
+		break;
+	case EV_IPA_READY:
+		{
+				pdata->prv_ipa.ipa_ready = true;
+
+				if (!pdata->prv_ipa.ipa_offload_init) {
+					if(!DWC_ETH_QOS_ipa_offload_init(pdata))
+						pdata->prv_ipa.ipa_offload_init = true;
+				}
+
+				if (!pdata->prv_ipa.ipa_uc_ready) {
+					DWC_ETH_QOS_ipa_uc_ready(pdata);
+				}
+
+				if (pdata->prv_ipa.ipa_uc_ready
+					&& DWC_ETH_QOS_is_phy_link_up(pdata))
+						DWC_ETH_QOS_enable_ipa_offload(pdata);
 		}
 		break;
 	case EV_IPA_UC_READY:
@@ -168,10 +204,11 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 			pdata->prv_ipa.ipa_uc_ready = true;
 			EMACINFO("%s:%d ipa uC is ready\n", __func__, __LINE__);
 
-			if (!pdata->prv_ipa.emac_dev_ready || !DWC_ETH_QOS_is_phy_link_up(pdata))
+			if (!pdata->prv_ipa.emac_dev_ready)
 				break;
 
-			DWC_ETH_QOS_enable_ipa_offload(pdata);
+			if (DWC_ETH_QOS_is_phy_link_up(pdata))
+				DWC_ETH_QOS_enable_ipa_offload(pdata);
 		}
 		break;
 	case EV_DEV_CLOSE:
@@ -182,13 +219,12 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 				ipa_uc_offload_dereg_rdyCB(IPA_UC_NTN);
 
 			DWC_ETH_QOS_disable_ipa_offload(pdata);
+
+			/* reset link down on dev close */
+			pdata->prv_ipa.ipa_offload_link_down = 0;
 		}
 		break;
 	case EV_DPM_SUSPEND:
-		{
-			if (pdata->prv_ipa.ipa_offload_susp || pdata->prv_ipa.ipa_offload_link_down)
-				DWC_ETH_QOS_scale_clks(pdata, 0);
-		}
 		break;
 	case EV_USR_SUSPEND:
 		{
@@ -199,9 +235,18 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 		break;
 	case EV_DPM_RESUME:
 		{
-			if(pdata->prv_ipa.ipa_offload_susp)
-				if(!DWC_ETH_QOS_ipa_offload_resume(pdata))
+			if(pdata->prv_ipa.ipa_offload_susp) {
+				if (DWC_ETH_QOS_is_phy_link_up(pdata)) {
+					if(!DWC_ETH_QOS_ipa_offload_resume(pdata))
+						pdata->prv_ipa.ipa_offload_susp = false;
+				} else {
+					/* Reset flag here to allow connection of pipes on next PHY link up */
 					pdata->prv_ipa.ipa_offload_susp = false;
+					/* PHY link is down at resume */
+					/* Reset flag here to allow connection of pipes on next PHY link up */
+					pdata->prv_ipa.ipa_offload_link_down = true;
+				}
+			}
 		}
 		break;
 	case EV_USR_RESUME:
@@ -220,8 +265,8 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 		break;
 	}
 
-	IPA_UNLOCK();
 	EMACINFO("Exit: event=%s\n", IPA_OFFLOAD_EVENT_string[ev]);
+	IPA_UNLOCK();
 }
 
 int DWC_ETH_QOS_enable_ipa_offload(struct DWC_ETH_QOS_prv_data *pdata)
@@ -295,7 +340,7 @@ int DWC_ETH_QOS_disable_ipa_offload(struct DWC_ETH_QOS_prv_data *pdata)
 	EMACDBG("Enter \n");
 
 	/* De-configure IPA Related Stuff */
-	/* Not user requested suspend, do not set ipa_offload_susp*/
+	/* Not user requested suspend, do not set ipa_offload_susp */
 	if (!pdata->prv_ipa.ipa_offload_susp && pdata->prv_ipa.ipa_offload_conn) {
 		ret = DWC_ETH_QOS_ipa_offload_suspend(pdata);
 		if (ret) {
@@ -447,7 +492,10 @@ static int DWC_ETH_QOS_ipa_offload_resume(struct DWC_ETH_QOS_prv_data *pdata)
 	int ret = Y_SUCCESS;
 	struct ipa_perf_profile profile;
 
-	EMACDBG("Resume/enable IPA offload\n");
+	EMACDBG("Enter\n");
+
+	/* Initialze descriptors before IPA connect */
+	/* Set IPA owned DMA channels to reset state */
 	hw_if->tx_desc_init(pdata, IPA_DMA_TX_CH);
 	hw_if->rx_desc_init(pdata, IPA_DMA_RX_CH);
 
@@ -471,13 +519,13 @@ static int DWC_ETH_QOS_ipa_offload_resume(struct DWC_ETH_QOS_prv_data *pdata)
 		return ret;
 	}
 
+	EMACDBG("Exit\n");
+
 	return ret;
 }
 
-static int DWC_ETH_QOS_ipa_uc_ready(struct DWC_ETH_QOS_prv_data *pdata)
+static int DWC_ETH_QOS_ipa_ready(struct DWC_ETH_QOS_prv_data *pdata)
 {
-	struct ipa_uc_ready_params param;
-	unsigned long flags;
 	int ret;
 
 	EMACDBG("Enter \n");
@@ -495,6 +543,21 @@ static int DWC_ETH_QOS_ipa_uc_ready(struct DWC_ETH_QOS_prv_data *pdata)
 			return ret;
 		}
 	}
+
+	pdata->prv_ipa.ipa_ready = true;
+
+	EMACDBG("Exit \n");
+
+	return ret;
+}
+
+static int DWC_ETH_QOS_ipa_uc_ready(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	struct ipa_uc_ready_params param;
+	unsigned long flags;
+	int ret;
+
+	EMACDBG("Enter \n");
 
 	param.is_uC_ready = false;
 	param.priv = pdata;
@@ -517,19 +580,9 @@ static void DWC_ETH_QOS_ipa_ready_wq(struct work_struct *work)
 				struct DWC_ETH_QOS_prv_ipa_data, ntn_ipa_rdy_work);
 	struct DWC_ETH_QOS_prv_data *pdata = container_of(ntn_ipa,
 					struct DWC_ETH_QOS_prv_data, prv_ipa);
-	struct ipa_uc_ready_params param;
-	int ret;
 
-	param.is_uC_ready = false;
-	param.priv = pdata;
-	param.notify = DWC_ETH_QOS_ipa_uc_ready_cb;
-	param.proto = IPA_UC_NTN;
-
-	ret = ipa_uc_offload_reg_rdyCB(&param);
-	if (ret == 0 && param.is_uC_ready) {
-		EMACDBG("%s:%d ipa uc ready\n", __func__, __LINE__);
-		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_IPA_UC_READY);
-	}
+	EMACDBG("%s:%d iDWC_ETH_QOS_ipa_ready_wq\n", __func__, __LINE__);
+	DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_IPA_READY);
 }
 
 static void DWC_ETH_QOS_ipaUcRdy_wq(struct work_struct *work)
@@ -539,6 +592,7 @@ static void DWC_ETH_QOS_ipaUcRdy_wq(struct work_struct *work)
 	struct DWC_ETH_QOS_prv_data *pdata = container_of(ntn_ipa,
 					struct DWC_ETH_QOS_prv_data, prv_ipa);
 
+	EMACDBG("%s:%d iDWC_ETH_QOS_ipa_uc_ready_wq\n", __func__, __LINE__);
 	DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_IPA_UC_READY);
 
 }
@@ -584,7 +638,7 @@ static void DWC_ETH_QOS_ipa_uc_ready_cb(void *user_data)
 		return;
 	}
 
-	EMACDBG("%s Received IPA ready callback\n",__func__);
+	EMACDBG("%s Received IPA UC ready callback\n",__func__);
 	INIT_WORK(&ntn_ipa->ntn_ipa_rdy_work, DWC_ETH_QOS_ipaUcRdy_wq);
 	queue_work(system_unbound_wq, &ntn_ipa->ntn_ipa_rdy_work);
 
@@ -616,8 +670,6 @@ static void ntn_ipa_notify_cb(void *priv, enum ipa_dp_evt_type evt,
 		EMACERR( "Null Param %s ntn_ipa %p \n", __func__, ntn_ipa);
 		return;
 	}
-
-	EMACDBG("%s %d EVT Rcvd %d \n", __func__, __LINE__, evt);
 
 	if (!ntn_ipa->ipa_offload_conn) {
 		EMACERR("ipa_cb before offload is ready %s ipa_offload_conn %d  \n", __func__, ntn_ipa->ipa_offload_conn);

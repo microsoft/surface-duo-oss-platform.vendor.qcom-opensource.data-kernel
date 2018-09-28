@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -367,6 +367,9 @@ static const struct DWC_ETH_QOS_stats DWC_ETH_QOS_mmc[] = {
 
 #define DWC_ETH_QOS_MMC_STATS_LEN ARRAY_SIZE(DWC_ETH_QOS_mmc)
 
+static const struct ethtool_ops DWC_ETH_QOS_ethtool_no_ops = {
+};
+
 static const struct ethtool_ops DWC_ETH_QOS_ethtool_ops = {
 	.get_link = ethtool_op_get_link,
 	.get_pauseparam = DWC_ETH_QOS_get_pauseparam,
@@ -380,11 +383,19 @@ static const struct ethtool_ops DWC_ETH_QOS_ethtool_ops = {
 	.get_ethtool_stats = DWC_ETH_QOS_get_ethtool_stats,
 	.get_strings = DWC_ETH_QOS_get_strings,
 	.get_sset_count = DWC_ETH_QOS_get_sset_count,
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+	.get_ts_info = DWC_ETH_QOS_get_ts_info,
+#endif /* end of DWC_ETH_QOS_CONFIG_PTP */
 };
 
-struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(void)
+struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(
+			struct DWC_ETH_QOS_prv_data *pdata)
 {
-	return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_ops;
+	/* No phy registered hence no ethtool operations supported */
+	if (pdata->always_on_phy)
+		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_no_ops;
+	else
+		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_ops;
 }
 
 /*!
@@ -530,6 +541,33 @@ void DWC_ETH_QOS_configure_flow_ctrl(struct DWC_ETH_QOS_prv_data *pdata)
 	DBGPR("<--DWC_ETH_QOS_configure_flow_ctrl\n");
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+void convert_kset_to_legacy_cmd(const struct ethtool_link_ksettings *new_cmd,
+			struct ethtool_cmd *legacy)
+{
+	bool link_mode = false;
+	//const unsigned long supported = new_cmd->link_modes.supported;
+
+	legacy->autoneg = new_cmd->base.autoneg;
+	legacy->duplex = new_cmd->base.duplex;
+	legacy->port = new_cmd->base.port;
+	legacy->phy_address = new_cmd->base.phy_address;
+	legacy->transceiver = new_cmd->base.transceiver;
+	legacy->eth_tp_mdix_ctrl = new_cmd->base.eth_tp_mdix_ctrl;
+
+	legacy->advertising = (__u32)new_cmd->link_modes.advertising;
+	legacy->lp_advertising = (__u32)new_cmd->link_modes.lp_advertising;
+
+	ethtool_cmd_speed_set(legacy, new_cmd->base.speed);
+	link_mode = ethtool_convert_link_mode_to_legacy_u32(&legacy->supported,
+				     new_cmd->link_modes.supported);
+	if (!link_mode)
+		DBGPR("unable to convert link mode to legacy \n");
+
+	return;
+}
+#endif
+
 /*!
  * \details This function is invoked by kernel when user request to get the
  * various device settings through standard ethtool command. This function
@@ -548,6 +586,10 @@ void DWC_ETH_QOS_configure_flow_ctrl(struct DWC_ETH_QOS_prv_data *pdata)
 static int DWC_ETH_QOS_getsettings(struct net_device *dev,
 				   struct ethtool_cmd *cmd)
 {
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+	struct ethtool_link_ksettings new_cmd;
+#endif
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	unsigned int pause, duplex;
@@ -630,7 +672,12 @@ static int DWC_ETH_QOS_getsettings(struct net_device *dev,
 		cmd->transceiver = XCVR_EXTERNAL;
 
 		mutex_lock(&pdata->mlock);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+		phy_ethtool_ksettings_get(pdata->phydev, &new_cmd);
+		convert_kset_to_legacy_cmd(&new_cmd, cmd);
+#else
 		ret = phy_ethtool_gset(pdata->phydev, cmd);
+#endif
 		mutex_unlock(&pdata->mlock);
 	}
 
@@ -692,7 +739,17 @@ static int DWC_ETH_QOS_setsettings(struct net_device *dev,
 		spin_unlock_irq(&pdata->lock);
 	} else {
 		mutex_lock(&pdata->mlock);
-		ret = phy_ethtool_sset(pdata->phydev, cmd);
+
+		/* Half duplex is not supported */
+		if (cmd->duplex != DUPLEX_FULL) {
+			ret = -EINVAL;
+		} else {
+			/* Advertise all supported speeds when autoneg is enabled */
+			if (cmd->autoneg == AUTONEG_ENABLE)
+				cmd->advertising = pdata->phydev->supported;
+
+			ret = phy_ethtool_sset(pdata->phydev, cmd);
+		}
 		mutex_unlock(&pdata->mlock);
 	}
 
@@ -1111,3 +1168,29 @@ static int DWC_ETH_QOS_get_sset_count(struct net_device *dev, int sset)
 	return len;
 }
 
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+
+/*!
+ * \details This function gets the PHC index
+ *
+ * \param[in] dev ? pointer to net device structure.
+ * \param[in] ethtool_ts_info ? pointer to ts info structure.
+ *
+ * \return int
+ *
+ * \retval +ve(>0) on success, 0 if that string is not
+ * defined and -ve on failure.
+ */
+
+static int DWC_ETH_QOS_get_ts_info(struct net_device *dev,
+                           struct ethtool_ts_info *info)
+{
+	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
+	DBGPR("-->DWC_ETH_QOS_get_ts_info\n");
+	info->phc_index = DWC_ETH_QOS_phc_index(pdata);
+	EMACINFO("PHC index = %d\n", info->phc_index);
+	DBGPR("<--DWC_ETH_QOS_get_ts_info\n");
+	return 0;
+}
+
+#endif /* end of DWC_ETH_QOS_CONFIG_PTP */

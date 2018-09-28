@@ -2916,8 +2916,7 @@ static INT enable_rx_dma_interrupts(UINT QINX,
 	/* Reset all Rx interrupt bits */
 	VARDMA_IER = VARDMA_IER & (ULONG)(DMA_RX_INT_RESET_MASK);
 
-	VARDMA_IER = VARDMA_IER | ((0x1) << 7) |
-		((0x1) << 8) | ((0x1) << 14) | ((0x1) << 12) |
+	VARDMA_IER = VARDMA_IER | ((0x1) << 7) | ((0x1) << 14) | ((0x1) << 12) |
 	    ((0x1) << 15);
 
 	/* RIE - Receive Interrupt Enable */
@@ -4566,11 +4565,10 @@ static int enable_mac_interrupts(void)
 	unsigned long varmac_imr;
 
 	/* Enable following interrupts */
-	/* PHYIE - PHY Interrupt Enable */
 	/* LPIIM - LPI Interrupt Enable */
 	MAC_IMR_RGRD(varmac_imr);
-	varmac_imr = varmac_imr & (unsigned long)(0x1008);
-	varmac_imr = varmac_imr | ((0x1) << 3) | ((0x1) << 5);
+	varmac_imr = varmac_imr & (unsigned long)(0x1000);
+	varmac_imr = varmac_imr | ((0x1) << 5);
 	MAC_IMR_RGWR(varmac_imr);
 
 	return Y_SUCCESS;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved. */
 /*
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,8 +21,8 @@
 
 
 
-#define MAX_SUPPORTED_IF_CONFIG 1
-#define DRV_VERSION "v1.0"
+#define MAX_SUPPORTED_IF_CONFIG 3
+#define DRV_VERSION "v2.0"
 /*
  * MAX buffer length for stats display.
  */
@@ -32,14 +32,14 @@
 #define PACKET_DUMP_BUFFER 200
 #define PACKET_MP_PRINT_LEN 100
 #define READ_STATS_OFFSET 5
-#define TAG_LENGTH 48
-#define MAX_PACKETS_TO_SEND 50
+#define TAG_LENGTH 4
+#define MAX_PACKETS_TO_SEND 40
 
 #define GSB_ACCEPT 1
 #define GSB_DROP 2
 #define GSB_FORWARD 3
 
-#define GSB_FLOW_CNTRL_QUEUE_MULTIPLIER 4
+#define GSB_FLOW_CNTRL_QUEUE_MULTIPLIER 3
 
 #define MAC_ADDR_ARRAY(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 
@@ -63,6 +63,8 @@ struct gsb_ipa_stats
 	uint64_t drop_send_to_ipa_fail;
 	uint64_t exp_if_disconnected;
 	uint64_t exp_if_disconnected_fail;
+	uint64_t exp_embedded_packet;
+	uint64_t gro_enabled_packet;
 
 	/* TX Side(DOWNLINK)*/
 	uint64_t tx_send_to_if;
@@ -75,9 +77,11 @@ struct gsb_ipa_stats
 
 enum if_device_type
 {
-	WLAN_TYPE = 1,
+	WLAN_TYPE_AP = 1,
+	WLAN_TYPE_STA = 2,
 	ETH_TYPE,
 };
+
 struct gsb_if_config
 {
 	char if_name[IFNAMSIZ];
@@ -85,6 +89,7 @@ struct gsb_if_config
 	u16 if_high_watermark;
 	u16 if_low_watermark;
 	enum if_device_type if_type;
+	__be32 ap_ip;
 };
 
 /**
@@ -128,7 +133,6 @@ struct gsb_if_info
 	uint64_t wq_schedule_cnt;
 	uint64_t idle_cnt;
 	spinlock_t flow_ctrl_lock;
-	bool flow_ctrl_lock_acquired;
 
 	struct sk_buff_head pend_queue;
 
@@ -175,6 +179,8 @@ struct gsb_ctx
 	uint64_t inactivity_timer_cnt;
 	uint64_t inactivity_timer_cancelled_cnt;
 	struct hlist_head cache_htable_list[MAX_SUPPORTED_IF_CONFIG];
+
+	bool module_exiting;
 };
 
 u8 NBITS(u32 n)
