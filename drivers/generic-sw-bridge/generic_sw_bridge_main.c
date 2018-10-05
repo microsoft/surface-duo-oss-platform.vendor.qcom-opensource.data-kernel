@@ -30,6 +30,7 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <net/addrconf.h>
+#include <linux/msm-sps.h>
 
 static char gsb_drv_name[] = "gsb";
 static struct gsb_ctx *__gc = NULL;
@@ -54,8 +55,6 @@ static int suspend_all_bridged_interfaces(void);
 static DECLARE_DELAYED_WORK(if_suspend_wq, suspend_task);
 static struct workqueue_struct *gsb_wq;
 extern int (*gsb_nw_stack_recv)(struct sk_buff *skb);
-
-
 
 static void release_wake_source(void)
 {
