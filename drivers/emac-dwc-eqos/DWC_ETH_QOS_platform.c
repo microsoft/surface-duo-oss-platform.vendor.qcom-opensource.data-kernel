@@ -2107,9 +2107,6 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 			pdata->power_down_type &= ~DWC_ETH_QOS_PHY_INTR_WAKEUP;
 		}
 
-		/* Wakeup reason can be PHY link event or a RX packet */
-		/* Set a wakeup event to ensure enough time for processing */
-		pm_wakeup_event(&pdev->dev, 5000);
 		return 0;
 	}
 
@@ -2119,10 +2116,6 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
-
-	/* Wakeup reason can be PHY link event or a RX packet */
-	/* Set a wakeup event to ensure enough time for processing */
-	pm_wakeup_event(&pdev->dev, 5000);
 
 	DBGPR("<--DWC_ETH_QOS_resume\n");
 

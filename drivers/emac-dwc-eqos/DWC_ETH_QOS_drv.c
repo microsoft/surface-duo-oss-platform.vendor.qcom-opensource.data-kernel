@@ -732,6 +732,9 @@ void DWC_ETH_QOS_defer_phy_isr_work(struct work_struct *work)
 
 	EMACDBG("Enter\n");
 
+	/* Set a wakeup event to ensure enough time for processing */
+	pm_wakeup_event(&pdata->pdev->dev, 5000);
+
 	if (pdata->clks_suspended)
 		wait_for_completion(&pdata->clk_enable_done);
 
