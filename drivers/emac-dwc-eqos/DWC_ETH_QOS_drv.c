@@ -732,6 +732,9 @@ void DWC_ETH_QOS_defer_phy_isr_work(struct work_struct *work)
 
 	EMACDBG("Enter\n");
 
+	/* Set a wakeup event to ensure enough time for processing */
+	pm_wakeup_event(&pdata->pdev->dev, 5000);
+
 	if (pdata->clks_suspended)
 		wait_for_completion(&pdata->clk_enable_done);
 
@@ -2406,11 +2409,10 @@ UINT DWC_ETH_QOS_get_total_desc_cnt(struct DWC_ETH_QOS_prv_data *pdata,
 	return count;
 }
 
-inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb,
+inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb, UINT eth_type,
 	struct DWC_ETH_QOS_prv_data *pdata)
 {
 	UINT ret = DEFAULT_INT_MOD;
-	UINT eth_type = GET_ETH_TYPE(skb->data);
 
 #ifdef DWC_ETH_QOS_CONFIG_PTP
 	if (eth_type == ETH_P_1588)
@@ -2466,9 +2468,8 @@ static int DWC_ETH_QOS_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	int tso;
 	struct netdev_queue *devq = netdev_get_tx_queue(dev, qinx);
 	UINT int_mod = 1;
+	UINT eth_type = 0;
 
-	if (ip_hdr(skb)->protocol == IPPROTO_TCP)
-		skb_orphan(skb);
 
 	DBGPR("-->DWC_ETH_QOS_start_xmit: skb->len = %d, qinx = %u\n",
 	      skb->len, qinx);
@@ -2589,10 +2590,13 @@ static int DWC_ETH_QOS_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if ((pdata->hw_feat.tsstssel == 0) || (pdata->hwts_tx_en == 0))
 		skb_tx_timestamp(skb);
 
+	eth_type = GET_ETH_TYPE(skb->data);
 	/*For TSO packets, IOC bit is to be set to 1 in order to avoid data stall*/
 	if (!tso)
-		int_mod = DWC_ETH_QOS_cal_int_mod(skb, pdata);
+		int_mod = DWC_ETH_QOS_cal_int_mod(skb, eth_type, pdata);
 
+	if (eth_type == ETH_P_IP || eth_type == ETH_P_IPV6)
+		skb_orphan(skb);
 	/* configure required descriptor fields for transmission */
 	hw_if->pre_xmit(pdata, qinx, int_mod);
 
@@ -3077,10 +3081,11 @@ static void DWC_ETH_QOS_consume_page_split_hdr(
 {
 	if (page2_used)
 		buffer->page2 = NULL;
-
-	skb->len += length;
-	skb->data_len += length;
-	skb->truesize += length;
+		if (skb != NULL) {
+			skb->len += length;
+			skb->data_len += length;
+			skb->truesize += length;
+		}
 }
 
 /* Receive Checksum Offload configuration */
@@ -3188,7 +3193,7 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 	unsigned short payload_len = 0;
 	unsigned char intermediate_desc_cnt = 0;
 	unsigned char buf2_used = 0;
-	int ret;
+	int ret = 0;
 
 	DBGPR("-->DWC_ETH_QOS_clean_split_hdr_rx_irq: qinx = %u, quota = %d\n",
 	      qinx, quota);
@@ -3287,15 +3292,13 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 				} else {
 					/* this is the middle of a chain */
 					payload_len = pdata->rx_buffer_len;
-					skb_fill_page_desc(desc_data->skb_top,
-							   skb_shinfo(desc_data->skb_top)->nr_frags,
-						buffer->page2, 0,
-						payload_len);
-
+					if (desc_data->skb_top != NULL)
+						skb_fill_page_desc(desc_data->skb_top,skb_shinfo(desc_data->skb_top)->nr_frags,buffer->page2, 0,payload_len);
 					/* re-use this skb, as consumed only the page */
 					buffer->skb = skb;
 				}
-				DWC_ETH_QOS_consume_page_split_hdr(buffer,
+				if (desc_data->skb_top != NULL)
+						DWC_ETH_QOS_consume_page_split_hdr(buffer,
 								   desc_data->skb_top,
 							 payload_len, buf2_used);
 				goto next_desc;
@@ -3312,17 +3315,15 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 							(pdata->rx_buffer_len * intermediate_desc_cnt) -
 							buffer->rx_hdr_size);
 					}
-
-					skb_fill_page_desc(desc_data->skb_top,
-							   skb_shinfo(desc_data->skb_top)->nr_frags,
-						buffer->page2, 0,
-						payload_len);
-
-					/* re-use this skb, as consumed only the page */
-					buffer->skb = skb;
-					skb = desc_data->skb_top;
+					if (desc_data->skb_top != NULL) {
+						skb_fill_page_desc(desc_data->skb_top,skb_shinfo(desc_data->skb_top)->nr_frags,buffer->page2, 0,payload_len);
+						/* re-use this skb, as consumed only the page */
+						buffer->skb = skb;
+						skb = desc_data->skb_top;
+					}
 					desc_data->skb_top = NULL;
-					DWC_ETH_QOS_consume_page_split_hdr(buffer, skb,
+					if (skb != NULL)
+						DWC_ETH_QOS_consume_page_split_hdr(buffer, skb,
 									   payload_len, buf2_used);
 				} else {
 					/* no chain, got both FD + LD together */
@@ -3366,11 +3367,13 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 				hdr_len = 0;
 			}
 
-			DWC_ETH_QOS_config_rx_csum(pdata, skb, RX_NORMAL_DESC);
+			if (skb != NULL) {
+				DWC_ETH_QOS_config_rx_csum(pdata, skb, RX_NORMAL_DESC);
 
 #ifdef DWC_ETH_QOS_ENABLE_VLAN_TAG
-			DWC_ETH_QOS_get_rx_vlan(pdata, skb, RX_NORMAL_DESC);
+				DWC_ETH_QOS_get_rx_vlan(pdata, skb, RX_NORMAL_DESC);
 #endif
+			}
 
 #ifdef YDEBUG_FILTER
 			DWC_ETH_QOS_check_rx_filter_status(RX_NORMAL_DESC);
@@ -3379,14 +3382,16 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 			if ((pdata->hw_feat.tsstssel) && (pdata->hwts_rx_en)) {
 				/* get rx tstamp if available */
 				if (hw_if->rx_tstamp_available(RX_NORMAL_DESC)) {
-					ret = DWC_ETH_QOS_get_rx_hwtstamp(pdata,
+					if (skb != NULL )
+						ret = DWC_ETH_QOS_get_rx_hwtstamp(pdata,
 									  skb, desc_data, qinx);
 					if (ret == 0) {
 						/* device has not yet updated the CONTEXT desc to hold the
 						 * time stamp, hence delay the packet reception
 						 */
 						buffer->skb = skb;
-						buffer->dma = dma_map_single(GET_MEM_PDEV_DEV, skb->data,
+						if (skb != NULL)
+							buffer->dma = dma_map_single(GET_MEM_PDEV_DEV, skb->data,
 								pdata->rx_buffer_len, DMA_FROM_DEVICE);
 						if (dma_mapping_error(GET_MEM_PDEV_DEV, buffer->dma))
 							dev_alert(&pdata->pdev->dev, "failed to do the RX dma map\n");
@@ -3406,8 +3411,10 @@ static int DWC_ETH_QOS_clean_split_hdr_rx_irq(
 #endif
 			/* update the statistics */
 			dev->stats.rx_packets++;
-			dev->stats.rx_bytes += skb->len;
-			DWC_ETH_QOS_receive_skb(pdata, dev, skb, qinx);
+			if ( skb != NULL) {
+				dev->stats.rx_bytes += skb->len;
+				DWC_ETH_QOS_receive_skb(pdata, dev, skb, qinx);
+			}
 			received++;
  next_desc:
 			desc_data->dirty_rx++;
@@ -3468,7 +3475,7 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 	u16 pkt_len;
 	UCHAR intermediate_desc_cnt = 0;
 	unsigned int buf2_used;
-	int ret;
+	int ret = 0 ;
 
 	DBGPR("-->DWC_ETH_QOS_clean_jumbo_rx_irq: qinx = %u, quota = %d\n",
 	      qinx, quota);
@@ -3539,20 +3546,22 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 						pdata->rx_buffer_len);
 				} else {
 					/* this is the middle of a chain */
-					skb_fill_page_desc(desc_data->skb_top,
+					if (desc_data->skb_top != NULL) {
+						skb_fill_page_desc(desc_data->skb_top,
 							   skb_shinfo(desc_data->skb_top)->nr_frags,
 						buffer->page, 0,
 						pdata->rx_buffer_len);
-
-					DBGPR("RX: pkt in second buffer pointer\n");
-					skb_fill_page_desc(desc_data->skb_top,
+						DBGPR("RX: pkt in second buffer pointer\n");
+						skb_fill_page_desc(desc_data->skb_top,
 							   skb_shinfo(desc_data->skb_top)->nr_frags,
 						buffer->page2, 0,
 						pdata->rx_buffer_len);
+					}
 					/* re-use this skb, as consumed only the page */
 					buffer->skb = skb;
 				}
-				DWC_ETH_QOS_consume_page(buffer,
+				if (desc_data->skb_top != NULL )
+					DWC_ETH_QOS_consume_page(buffer,
 							 desc_data->skb_top,
 							 (pdata->rx_buffer_len * 2),
 							 buf2_used);
@@ -3563,19 +3572,21 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 					pkt_len =
 						(pkt_len - (pdata->rx_buffer_len * intermediate_desc_cnt));
 					if (pkt_len > pdata->rx_buffer_len) {
-						skb_fill_page_desc(desc_data->skb_top,
+						if (desc_data->skb_top != NULL) {
+							skb_fill_page_desc(desc_data->skb_top,
 								   skb_shinfo(desc_data->skb_top)->nr_frags,
 							buffer->page, 0,
 							pdata->rx_buffer_len);
-
-						DBGPR("RX: pkt in second buffer pointer\n");
-						skb_fill_page_desc(desc_data->skb_top,
+							DBGPR("RX: pkt in second buffer pointer\n");
+							skb_fill_page_desc(desc_data->skb_top,
 								   skb_shinfo(desc_data->skb_top)->nr_frags,
 							buffer->page2, 0,
 							(pkt_len - pdata->rx_buffer_len));
+						}
 						buf2_used = 1;
 					} else {
-						skb_fill_page_desc(desc_data->skb_top,
+						if (desc_data->skb_top != NULL)
+							skb_fill_page_desc(desc_data->skb_top,
 								   skb_shinfo(desc_data->skb_top)->nr_frags,
 							buffer->page, 0,
 							pkt_len);
@@ -3583,9 +3594,11 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 					}
 					/* re-use this skb, as consumed only the page */
 					buffer->skb = skb;
-					skb = desc_data->skb_top;
+					if (desc_data->skb_top != NULL)
+						skb = desc_data->skb_top;
 					desc_data->skb_top = NULL;
-					DWC_ETH_QOS_consume_page(buffer, skb,
+					if (skb != NULL)
+						DWC_ETH_QOS_consume_page(buffer, skb,
 								 pkt_len,
 								 buf2_used);
 				} else {
@@ -3635,11 +3648,13 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 				intermediate_desc_cnt = 0;
 			}
 
-			DWC_ETH_QOS_config_rx_csum(pdata, skb, RX_NORMAL_DESC);
+			if (skb != NULL) {
+				DWC_ETH_QOS_config_rx_csum(pdata, skb, RX_NORMAL_DESC);
 
 #ifdef DWC_ETH_QOS_ENABLE_VLAN_TAG
-			DWC_ETH_QOS_get_rx_vlan(pdata, skb, RX_NORMAL_DESC);
+				DWC_ETH_QOS_get_rx_vlan(pdata, skb, RX_NORMAL_DESC);
 #endif
+			}
 
 #ifdef YDEBUG_FILTER
 			DWC_ETH_QOS_check_rx_filter_status(RX_NORMAL_DESC);
@@ -3648,15 +3663,16 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 			if ((pdata->hw_feat.tsstssel) && (pdata->hwts_rx_en)) {
 				/* get rx tstamp if available */
 				if (hw_if->rx_tstamp_available(RX_NORMAL_DESC)) {
-					ret = DWC_ETH_QOS_get_rx_hwtstamp(pdata,
-									  skb, desc_data, qinx);
+					if (skb != NULL)
+						ret = DWC_ETH_QOS_get_rx_hwtstamp(pdata, skb, desc_data, qinx);
 					if (ret == 0) {
 						/* device has not yet updated the CONTEXT desc to hold the
 						 * time stamp, hence delay the packet reception
 						 */
 						buffer->skb = skb;
-						buffer->dma = dma_map_single(GET_MEM_PDEV_DEV, skb->data,
-								pdata->rx_buffer_len, DMA_FROM_DEVICE);
+						if (skb != NULL)
+							buffer->dma = dma_map_single(GET_MEM_PDEV_DEV, skb->data, pdata->rx_buffer_len, DMA_FROM_DEVICE);
+
 						if (dma_mapping_error(GET_MEM_PDEV_DEV, buffer->dma))
 							dev_alert(&pdata->pdev->dev, "failed to do the RX dma map\n");
 
@@ -3676,16 +3692,16 @@ static int DWC_ETH_QOS_clean_jumbo_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 #endif
 			/* update the statistics */
 			dev->stats.rx_packets++;
-			dev->stats.rx_bytes += skb->len;
-
-			/* eth type trans needs skb->data to point to something */
-			if (!pskb_may_pull(skb, ETH_HLEN)) {
-				dev_alert(&pdata->pdev->dev, "pskb_may_pull failed\n");
-				dev_kfree_skb_any(skb);
-				goto next_desc;
+			if (skb != NULL) {
+				dev->stats.rx_bytes += skb->len;
+				/* eth type trans needs skb->data to point to something */
+				if (!pskb_may_pull(skb, ETH_HLEN)) {
+					dev_alert(&pdata->pdev->dev, "pskb_may_pull failed\n");
+					dev_kfree_skb_any(skb);
+					goto next_desc;
+				}
+				DWC_ETH_QOS_receive_skb(pdata, dev, skb, qinx);
 			}
-
-			DWC_ETH_QOS_receive_skb(pdata, dev, skb, qinx);
 			received++;
  next_desc:
 			desc_data->dirty_rx++;
@@ -6097,11 +6113,20 @@ u16	DWC_ETH_QOS_select_queue(struct net_device *dev,
 			txqueue_select = CLASS_A_TRAFFIC_TX_CHANNEL;
 		else if(priority == CLASS_B_TRAFFIC_UCP)
 			txqueue_select = CLASS_B_TRAFFIC_TX_CHANNEL;
-		else
-			txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
+		else {
+			if (pdata->ipa_enabled)
+				txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
+			else
+				txqueue_select = ALL_OTHER_TX_TRAFFIC_IPA_DISABLED;
+		}
 	}
-	else /* VLAN tagged IP packet or any other non vlan packets (PTP)*/
-		txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
+	else {
+		/* VLAN tagged IP packet or any other non vlan packets (PTP)*/
+		if (pdata->ipa_enabled)
+			txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
+		else
+			txqueue_select = ALL_OTHER_TX_TRAFFIC_IPA_DISABLED;
+	}
 
 	if (pdata->ipa_enabled && txqueue_select == IPA_DMA_TX_CH) {
 	   EMACERR("TX Channel [%d] is not a valid for SW path \n", txqueue_select);

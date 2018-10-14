@@ -805,7 +805,7 @@ int DWC_ETH_QOS_qmp_mailbox_init(struct DWC_ETH_QOS_prv_data *pdata)
 	pdata->qmp_mbox_client = devm_kzalloc(
 	   &pdata->pdev->dev, sizeof(*pdata->qmp_mbox_client), GFP_KERNEL);
 
-	if (IS_ERR(pdata->qmp_mbox_client)){
+	if (pdata->qmp_mbox_client == NULL || IS_ERR(pdata->qmp_mbox_client)){
 		EMACERR("qmp alloc client failed\n");
 		return -1;
 	}
@@ -1499,6 +1499,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 
 	if (pdata->hw_feat.tso_en) {
 		dev->hw_features = NETIF_F_TSO;
+		dev->hw_features |= NETIF_F_TSO6;
 #ifdef DWC_ETH_QOS_CONFIG_UFO
 		dev->hw_features |= NETIF_F_UFO;
 #endif
@@ -2106,9 +2107,6 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 			pdata->power_down_type &= ~DWC_ETH_QOS_PHY_INTR_WAKEUP;
 		}
 
-		/* Wakeup reason can be PHY link event or a RX packet */
-		/* Set a wakeup event to ensure enough time for processing */
-		pm_wakeup_event(&pdev->dev, 5000);
 		return 0;
 	}
 
@@ -2118,10 +2116,6 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
-
-	/* Wakeup reason can be PHY link event or a RX packet */
-	/* Set a wakeup event to ensure enough time for processing */
-	pm_wakeup_event(&pdev->dev, 5000);
 
 	DBGPR("<--DWC_ETH_QOS_resume\n");
 

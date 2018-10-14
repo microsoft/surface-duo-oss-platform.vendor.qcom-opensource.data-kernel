@@ -1191,6 +1191,7 @@ static long gsb_ioctl(struct file *filp,
 	struct gsb_if_info *info = NULL;
 	struct if_ipa_ctx *pif_ipa = NULL;
 	ssize_t result = 0;
+	struct net_device *dev;
 
 	if (__gc == NULL)
 	{
@@ -1280,6 +1281,41 @@ static long gsb_ioctl(struct file *filp,
 			pgsb_ctx->configured_if_count++;
 		}
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
+
+		if (info->user_config.if_type != ETH_TYPE)
+		{
+			//IPA should be ready most of the time but we still have
+			//this code to be sure.
+			if (!pgsb_ctx->is_ipa_ready)
+			{
+				DEBUG_TRACE("waiting for IPA to be ready\n");
+				wait_event_interruptible(wq, (pgsb_ctx->is_ipa_ready != 0));
+				if (pgsb_ctx->is_ipa_ready)
+				{
+					DEBUG_TRACE("IPA is ready now\n");
+				}
+			}
+			dev = __dev_get_by_name(&init_net, info->if_name);
+			//is this netdev in cache?
+			//if it is, is it already registered to IPA bridge?
+			//if not we need to bind it before it comes up.
+			//to do we should not be in atomic context to bind to IPA .IPA needs
+			//preemption to do what it need to do.
+			if (dev != NULL)
+			{
+				info->pdev = dev;
+				if (gsb_bind_if_to_ipa_bridge(info) != 0)
+				{
+					DEBUG_ERROR("failed to bind if %s with IPA bridge\n",
+						info->if_name);
+				}
+			}
+			else
+			{
+				DEBUG_TRACE("Device not found %s\n",
+					info->if_name);
+			}
+		}
 
 		break;
 
