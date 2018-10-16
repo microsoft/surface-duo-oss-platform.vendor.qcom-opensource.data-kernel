@@ -805,7 +805,7 @@ int DWC_ETH_QOS_qmp_mailbox_init(struct DWC_ETH_QOS_prv_data *pdata)
 	pdata->qmp_mbox_client = devm_kzalloc(
 	   &pdata->pdev->dev, sizeof(*pdata->qmp_mbox_client), GFP_KERNEL);
 
-	if (IS_ERR(pdata->qmp_mbox_client)){
+	if (pdata->qmp_mbox_client == NULL || IS_ERR(pdata->qmp_mbox_client)){
 		EMACERR("qmp alloc client failed\n");
 		return -1;
 	}
@@ -1499,6 +1499,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 
 	if (pdata->hw_feat.tso_en) {
 		dev->hw_features = NETIF_F_TSO;
+		dev->hw_features |= NETIF_F_TSO6;
 #ifdef DWC_ETH_QOS_CONFIG_UFO
 		dev->hw_features |= NETIF_F_UFO;
 #endif
