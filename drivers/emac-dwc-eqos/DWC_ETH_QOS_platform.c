@@ -1593,7 +1593,8 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		dev_alert(&pdev->dev, "carrier off till LINK is up\n");
 	}
 
-	if (EMAC_HW_v2_0_0 == pdata->emac_hw_version_type)
+	if ((EMAC_HW_v2_0_0 == pdata->emac_hw_version_type) ||
+			(EMAC_HW_v2_2_0 == pdata->emac_hw_version_type))
 		pdata->disable_ctile_pc = 1;
 
 	if (pdata->disable_ctile_pc && !DWC_ETH_QOS_qmp_mailbox_init(pdata)){
