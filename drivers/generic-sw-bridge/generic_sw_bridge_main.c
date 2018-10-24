@@ -1398,28 +1398,28 @@ static long gsb_ioctl(struct file *filp,
 			break;
 		}
 
-	if (info->is_ipa_bridge_initialized)
-	{
-		if (ipa_bridge_cleanup(info->handle) != 0)
+		if (info->is_ipa_bridge_initialized)
 		{
-			DEBUG_ERROR("issue in cleaning up IPA bridge for if %s\n",
-					info->if_name);
+			if (ipa_bridge_cleanup(info->handle) != 0)
+			{
+				DEBUG_ERROR("issue in cleaning up IPA bridge for if %s\n",
+						info->if_name);
+			}
+			else
+			{
+				DEBUG_INFO("bind cleanup for %s", info->if_name);
+			}
 		}
 		else
 		{
-			DEBUG_INFO("bind cleanup for %s", info->if_name);
+			DEBUG_INFO("IPA was never initialized for %s, No clean up reqd", info->if_name);
 		}
-	}
-	else
-	{
-		DEBUG_INFO("IPA was never initialized for %s, No clean up reqd", info->if_name);
-	}
 
 		/* can free memory now*/
-		kfree(info);
-		pgsb_ctx->mem_alloc_if_node--;
 		kfree(info->if_ipa);
 		pgsb_ctx->mem_alloc_if_ipa_context--;
+		kfree(info);
+		pgsb_ctx->mem_alloc_if_node--;
 		break;
 	default:
 		retval = -ENOTTY;
@@ -1427,7 +1427,7 @@ static long gsb_ioctl(struct file *filp,
 	kfree(config);
 	pgsb_ctx->mem_alloc_ioctl_buffer--;
 	return retval;
-	}
+}
 
 
 const struct file_operations gsb_ioctl_fops = {
