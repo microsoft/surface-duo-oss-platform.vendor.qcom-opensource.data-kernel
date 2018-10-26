@@ -677,11 +677,27 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto err_out;
 	}
+
 	dwc_eth_qos_res_data.rgmii_mem_base = resource->start;
 	dwc_eth_qos_res_data.rgmii_mem_size = resource_size(resource);
 	EMACDBG("rgmii-base = 0x%x, size = 0x%x\n",
 			dwc_eth_qos_res_data.rgmii_mem_base,
 			dwc_eth_qos_res_data.rgmii_mem_size);
+
+	resource = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+			"tlmm-central-base");
+	if (!resource) {
+		EMACERR("get rgmii-base resource failed\n");
+		ret = -ENODEV;
+		goto err_out;
+	}
+
+	dwc_eth_qos_res_data.tlmm_central_base = resource->start;
+	dwc_eth_qos_res_data.tlmm_central_size = resource_size(resource);
+	EMACDBG("tlmm_central_base = 0x%x, size = 0x%x\n",
+			dwc_eth_qos_res_data.tlmm_central_base,
+			dwc_eth_qos_res_data.tlmm_central_size);
+
 
 	resource = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
 			"sbd-intr");
@@ -767,9 +783,25 @@ err_out:
 	return ret;
 }
 
+static int DWC_ETH_QOS_iounmap(void)
+{
+	if (dwc_eth_qos_base_addr)
+		iounmap((void __iomem *)dwc_eth_qos_base_addr);
+
+	if (dwc_rgmii_io_csr_base_addr)
+		iounmap((void __iomem *)dwc_rgmii_io_csr_base_addr);
+
+	if (dwc_eth_qos_res_data.dwc_tlmm_central_base_addr)
+		iounmap((void __iomem *)dwc_eth_qos_res_data.dwc_tlmm_central_base_addr);
+}
+
 static int DWC_ETH_QOS_ioremap(void)
 {
 	int ret = 0;
+
+	dwc_eth_qos_base_addr = NULL;
+	dwc_rgmii_io_csr_base_addr = NULL;
+	dwc_eth_qos_res_data.dwc_tlmm_central_base_addr = NULL;
 
 	dwc_eth_qos_base_addr = (ULONG)ioremap(
 	   dwc_eth_qos_res_data.emac_mem_base,
@@ -793,13 +825,32 @@ static int DWC_ETH_QOS_ioremap(void)
 	EMACDBG("ETH_QOS_RGMII_IO_BASE_ADDR = %#lx\n",
 			dwc_rgmii_io_csr_base_addr);
 
+
+	dwc_eth_qos_res_data.dwc_tlmm_central_base_addr = (ULONG)ioremap(
+	   dwc_eth_qos_res_data.tlmm_central_base,
+	   dwc_eth_qos_res_data.tlmm_central_size);
+	if ((void __iomem *)dwc_eth_qos_res_data.dwc_tlmm_central_base_addr == NULL) {
+		EMACERR("cannot map dwc_tlmm_central reg memory, aborting\n");
+		ret = -EIO;
+		goto err_out_tlmm_map_failed;
+	}
+	EMACDBG("dwc_tlmm_central = %#lx\n",
+			dwc_eth_qos_res_data.dwc_tlmm_central_base_addr);
+
 	return ret;
 
+err_out_tlmm_map_failed:
 err_out_rgmii_map_failed:
-		iounmap((void __iomem *)dwc_eth_qos_base_addr);
+	DWC_ETH_QOS_iounmap();
 
 err_out_map_failed:
 	return ret;
+}
+
+void DWC_ETH_QOS_update_rgmii_tx_drv_strength(void)
+{
+	TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_WR(
+	   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA);
 }
 
 int DWC_ETH_QOS_qmp_mailbox_init(struct DWC_ETH_QOS_prv_data *pdata)
@@ -1597,6 +1648,11 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		INIT_WORK(&pdata->qmp_mailbox_work, DWC_ETH_QOS_qmp_mailbox_work);
 		queue_work(system_wq, &pdata->qmp_mailbox_work);
 	}
+
+	if ((EMAC_HW_v2_0_0 == pdata->emac_hw_version_type)
+			|| (EMAC_HW_v2_2_0 == pdata->emac_hw_version_type))
+		DWC_ETH_QOS_update_rgmii_tx_drv_strength();
+
 	DWC_ETH_QOS_create_debugfs(pdata);
 
 	EMACDBG("<-- DWC_ETH_QOS_configure_netdevice\n");
@@ -1840,6 +1896,7 @@ static int DWC_ETH_QOS_probe(struct platform_device *pdev)
  err_out_power_failed:
 	iounmap((void __iomem *)dwc_eth_qos_base_addr);
 	iounmap((void __iomem *)dwc_rgmii_io_csr_base_addr);
+	iounmap((void __iomem *)dwc_eth_qos_res_data.dwc_tlmm_central_base_addr);
 
  err_out_map_failed:
 	EMACERR("<-- DWC_ETH_QOS_probe\n");
@@ -1956,6 +2013,7 @@ int DWC_ETH_QOS_remove(struct platform_device *pdev)
 	DWC_ETH_QOS_disable_ptp_clk(&pdev->dev);
 	DWC_ETH_QOS_disable_regulators();
 	DWC_ETH_QOS_free_gpios();
+	DWC_ETH_QOS_iounmap();
 
 	EMACDBG("<-- DWC_ETH_QOS_remove\n");
 
