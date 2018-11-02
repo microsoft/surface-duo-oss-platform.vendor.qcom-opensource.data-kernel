@@ -371,7 +371,11 @@ static const struct DWC_ETH_QOS_stats DWC_ETH_QOS_mmc[] = {
 
 #define DWC_ETH_QOS_MMC_STATS_LEN ARRAY_SIZE(DWC_ETH_QOS_mmc)
 
-static const struct ethtool_ops DWC_ETH_QOS_ethtool_no_ops = {
+static const struct ethtool_ops DWC_ETH_QOS_ethtool_ops_always_on_phy = {
+       .get_link = ethtool_op_get_link,
+       .get_ethtool_stats = DWC_ETH_QOS_get_ethtool_stats,
+       .get_strings = DWC_ETH_QOS_get_strings,
+       .get_sset_count = DWC_ETH_QOS_get_sset_count,
 };
 
 static const struct ethtool_ops DWC_ETH_QOS_ethtool_ops = {
@@ -397,7 +401,7 @@ struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(
 {
 	/* No phy registered hence no ethtool operations supported */
 	if (pdata->always_on_phy)
-		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_no_ops;
+		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_ops_always_on_phy;
 	else
 		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_ops;
 }
