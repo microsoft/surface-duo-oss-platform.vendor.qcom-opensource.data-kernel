@@ -1984,12 +1984,10 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
 
-#ifdef DWC_ETH_QOS_TXPOLLING_MODE_ENABLE
     for (qinx = 0; qinx < DWC_ETH_QOS_TX_QUEUE_CNT; qinx++) {
 		/* check for tx descriptor status */
 		DWC_ETH_QOS_tx_interrupt(pdata->dev, pdata, qinx);
     }
-#endif
 
 	for (qinx = 0; qinx < DWC_ETH_QOS_RX_QUEUE_CNT; qinx++) {
 		if (pdata->ipa_enabled && (qinx == IPA_DMA_RX_CH))

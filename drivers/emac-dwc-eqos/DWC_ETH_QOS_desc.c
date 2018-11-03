@@ -187,7 +187,7 @@ static int DWC_ETH_QOS_alloc_rx_queue_struct(struct DWC_ETH_QOS_prv_data *pdata)
 				(sizeof(struct DWC_ETH_QOS_rx_buffer *) * cnt);
 		}
 
-		if (pdata->ipa_enabled) {
+		if (pdata->ipa_enabled && chInx == IPA_DMA_RX_CH) {
 			/* Allocate ipa_rx_buff_pool_va_addrs_base */
 			rx_desc_data->ipa_rx_buff_pool_va_addrs_base =
 				kzalloc(sizeof(void *) * pdata->rx_queue[chInx].desc_cnt, GFP_KERNEL);
@@ -244,6 +244,12 @@ static void DWC_ETH_QOS_free_rx_queue_struct(struct DWC_ETH_QOS_prv_data *pdata)
 
 	for (chInx = 0; chInx < pdata->rx_queue_cnt; chInx++) {
 		rx_desc_data = &pdata->rx_queue[chInx].rx_desc_data;
+
+		if (rx_desc_data->rx_buf_ptrs) {
+			kfree(rx_desc_data->rx_buf_ptrs);
+			rx_desc_data->rx_buf_ptrs = NULL;
+		}
+
 		if (rx_desc_data->rx_desc_dma_addrs) {
 			kfree(rx_desc_data->rx_desc_dma_addrs);
 			rx_desc_data->rx_desc_dma_addrs = NULL;
@@ -328,7 +334,7 @@ static int DWC_ETH_QOS_alloc_tx_queue_struct(struct DWC_ETH_QOS_prv_data *pdata)
 				(sizeof(struct DWC_ETH_QOS_tx_buffer *) * cnt);
 		}
 
-		if (pdata->ipa_enabled) {
+		if (pdata->ipa_enabled && chInx == IPA_DMA_TX_CH) {
 			/* Allocate ipa_tx_buff_pool_va_addrs_base */
 			tx_desc_data->ipa_tx_buff_pool_va_addrs_base =
 				kzalloc(sizeof(void *) * pdata->tx_queue[chInx].desc_cnt,GFP_KERNEL);
