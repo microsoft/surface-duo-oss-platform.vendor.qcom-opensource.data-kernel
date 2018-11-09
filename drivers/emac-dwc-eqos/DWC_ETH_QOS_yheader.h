@@ -1506,6 +1506,22 @@ struct DWC_ETH_QOS_ipa_stats {
 	unsigned long long ipa_ul_exception;
 };
 
+struct DWC_ETH_QOS_phy_regs {
+	unsigned int phy_mii_bmcr;
+	unsigned int phy_mii_bmsr;
+	unsigned int phy_mii_physid1;
+	unsigned int phy_mii_physid2;
+	unsigned int phy_mii_advertise;
+	unsigned int phy_mii_lpa;
+	unsigned int phy_mii_expansion;
+	unsigned int phy_auto_nego_np;
+	unsigned int phy_mii_estatus;
+	unsigned int phy_mii_ctrl1000;
+	unsigned int phy_mii_stat1000;
+	unsigned int phy_ctl;
+	unsigned int phy_sts;
+};
+
 typedef enum {
 		RGMII_MODE,
 		RMII_MODE,
@@ -1696,6 +1712,7 @@ struct DWC_ETH_QOS_prv_data {
 	struct DWC_ETH_QOS_mmc_counters mmc;
 	struct DWC_ETH_QOS_extra_stats xstats;
 	struct DWC_ETH_QOS_ipa_stats ipa_stats;
+	struct DWC_ETH_QOS_phy_regs phyregs;
 
 #ifdef DWC_ETH_QOS_CONFIG_PGTEST
 	struct DWC_ETH_QOS_PGSTRUCT *pg;
