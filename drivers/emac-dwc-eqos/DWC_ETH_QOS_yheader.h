@@ -139,6 +139,8 @@ extern void *ipc_emac_log_ctxt;
 #define __FILENAME__ (strrchr(__FILE__, '/') ? \
 	strrchr(__FILE__, '/') + 1 : __FILE__)
 
+/* Defining wake up timer of 500ms */
+#define EMAC_PM_WAKE_TIMER 500
 
 #ifdef CONFIG_PGTEST_OBJ
 #define DWC_ETH_QOS_CONFIG_PGTEST
