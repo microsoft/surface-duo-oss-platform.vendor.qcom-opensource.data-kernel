@@ -30,6 +30,7 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <net/addrconf.h>
+#include <linux/msm-sps.h>
 
 static char gsb_drv_name[] = "gsb";
 static struct gsb_ctx *__gc = NULL;
@@ -54,8 +55,6 @@ static int suspend_all_bridged_interfaces(void);
 static DECLARE_DELAYED_WORK(if_suspend_wq, suspend_task);
 static struct workqueue_struct *gsb_wq;
 extern int (*gsb_nw_stack_recv)(struct sk_buff *skb);
-
-
 
 static void release_wake_source(void)
 {
@@ -1399,28 +1398,28 @@ static long gsb_ioctl(struct file *filp,
 			break;
 		}
 
-	if (info->is_ipa_bridge_initialized)
-	{
-		if (ipa_bridge_cleanup(info->handle) != 0)
+		if (info->is_ipa_bridge_initialized)
 		{
-			DEBUG_ERROR("issue in cleaning up IPA bridge for if %s\n",
-					info->if_name);
+			if (ipa_bridge_cleanup(info->handle) != 0)
+			{
+				DEBUG_ERROR("issue in cleaning up IPA bridge for if %s\n",
+						info->if_name);
+			}
+			else
+			{
+				DEBUG_INFO("bind cleanup for %s", info->if_name);
+			}
 		}
 		else
 		{
-			DEBUG_INFO("bind cleanup for %s", info->if_name);
+			DEBUG_INFO("IPA was never initialized for %s, No clean up reqd", info->if_name);
 		}
-	}
-	else
-	{
-		DEBUG_INFO("IPA was never initialized for %s, No clean up reqd", info->if_name);
-	}
 
 		/* can free memory now*/
-		kfree(info);
-		pgsb_ctx->mem_alloc_if_node--;
 		kfree(info->if_ipa);
 		pgsb_ctx->mem_alloc_if_ipa_context--;
+		kfree(info);
+		pgsb_ctx->mem_alloc_if_node--;
 		break;
 	default:
 		retval = -ENOTTY;
@@ -1428,7 +1427,7 @@ static long gsb_ioctl(struct file *filp,
 	kfree(config);
 	pgsb_ctx->mem_alloc_ioctl_buffer--;
 	return retval;
-	}
+}
 
 
 const struct file_operations gsb_ioctl_fops = {

@@ -855,6 +855,9 @@ static void DWC_ETH_QOS_request_phy_wol(struct DWC_ETH_QOS_prv_data *pdata)
 
 			if (!phy_ethtool_set_wol(pdata->phydev, &wol)){
 				pdata->phy_wol_wolopts = wol.wolopts;
+
+				enable_irq_wake(pdata->phy_irq);
+
 				device_set_wakeup_enable(&pdata->pdev->dev, 1);
 				EMACINFO("Enabled WoL[0x%x] in %s\n", wol.wolopts,
 						 pdata->phydev->drv->name);
@@ -922,7 +925,7 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 	}
 
 #ifndef DWC_ETH_QOS_EMULATION_PLATFORM
-	if (pdata->enable_phy_intr && ((phydev->phy_id == ATH8031_PHY_ID)
+	if (pdata->enable_phy_intr && pdata->phy_irq && ((phydev->phy_id == ATH8031_PHY_ID)
 					|| (phydev->phy_id == ATH8035_PHY_ID))) {
 		pdata->phy_intr_en = true;
 		EMACDBG("Phy interrupt enabled\n");
@@ -979,7 +982,7 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 		DWC_ETH_QOS_set_phy_hibernation_mode(pdata, 0);
 	}
 
-	if (pdata->phy_intr_en && pdata->phy_irq) {
+	if (pdata->phy_intr_en) {
 
 		INIT_WORK(&pdata->emac_phy_work, DWC_ETH_QOS_defer_phy_isr_work);
 		init_completion(&pdata->clk_enable_done);
@@ -995,8 +998,12 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 		phydev->interrupts =  PHY_INTERRUPT_ENABLED;
 
 		if (phydev->drv->config_intr &&
-			!phydev->drv->config_intr(phydev))
+			!phydev->drv->config_intr(phydev)){
 			DWC_ETH_QOS_request_phy_wol(pdata);
+		} else {
+			EMACERR("Failed to configure PHY interrupts");
+			BUG();
+		}
 	}
 
 	phy_start(pdata->phydev);
