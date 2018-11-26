@@ -755,6 +755,9 @@ irqreturn_t DWC_ETH_QOS_PHY_ISR(int irq, void *dev_data)
 	struct DWC_ETH_QOS_prv_data *pdata =
 		(struct DWC_ETH_QOS_prv_data *)dev_data;
 
+	/* Set a wakeup event to ensure enough time for processing */
+	pm_wakeup_event(&pdata->pdev->dev, 5000);
+
 	/* Queue the work in system_wq */
 	queue_work(system_wq, &pdata->emac_phy_work);
 
@@ -6110,11 +6113,20 @@ u16	DWC_ETH_QOS_select_queue(struct net_device *dev,
 			txqueue_select = CLASS_A_TRAFFIC_TX_CHANNEL;
 		else if(priority == CLASS_B_TRAFFIC_UCP)
 			txqueue_select = CLASS_B_TRAFFIC_TX_CHANNEL;
-		else
-			txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
+		else {
+			if (pdata->ipa_enabled)
+				txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
+			else
+				txqueue_select = ALL_OTHER_TX_TRAFFIC_IPA_DISABLED;
+		}
 	}
-	else /* VLAN tagged IP packet or any other non vlan packets (PTP)*/
-		txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
+	else {
+		/* VLAN tagged IP packet or any other non vlan packets (PTP)*/
+		if (pdata->ipa_enabled)
+			txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
+		else
+			txqueue_select = ALL_OTHER_TX_TRAFFIC_IPA_DISABLED;
+	}
 
 	if (pdata->ipa_enabled && txqueue_select == IPA_DMA_TX_CH) {
 	   EMACERR("TX Channel [%d] is not a valid for SW path \n", txqueue_select);
@@ -6327,8 +6339,6 @@ INT DWC_ETH_QOS_powerdown(struct net_device *dev, UINT wakeup_type,
 		hw_if->enable_remote_pmt();
 	if (wakeup_type & DWC_ETH_QOS_MAGIC_WAKEUP)
 		hw_if->enable_magic_pmt();
-	if (wakeup_type & DWC_ETH_QOS_PHY_INTR_WAKEUP)
-		enable_irq_wake(pdata->phy_irq);
 
 	pdata->power_down_type = wakeup_type;
 
@@ -6387,11 +6397,6 @@ INT DWC_ETH_QOS_powerup(struct net_device *dev, UINT caller)
 	if (pdata->power_down_type & DWC_ETH_QOS_REMOTE_WAKEUP) {
 		hw_if->disable_remote_pmt();
 		pdata->power_down_type &= ~DWC_ETH_QOS_REMOTE_WAKEUP;
-	}
-
-	if (pdata->power_down_type & DWC_ETH_QOS_PHY_INTR_WAKEUP) {
-		disable_irq_wake(pdata->phy_irq);
-		pdata->power_down_type &= ~DWC_ETH_QOS_PHY_INTR_WAKEUP;
 	}
 
 	pdata->power_down = 0;

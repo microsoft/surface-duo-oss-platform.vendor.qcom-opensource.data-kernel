@@ -49,6 +49,8 @@
 #include "DWC_ETH_QOS_yheader.h"
 #include "DWC_ETH_QOS_ipa.h"
 
+void *ipc_emac_log_ctxt;
+
 #define EMAC_DEFAULT_BIT_ADDRESSING 32
 #define EMAC_36_BIT_ADDRESSING 36
 #define EMAC_64_BIT_ADDRESSING 64
@@ -60,6 +62,7 @@ static struct msm_bus_scale_pdata *emac_bus_scale_vec = NULL;
 
 ULONG dwc_eth_qos_base_addr;
 ULONG dwc_rgmii_io_csr_base_addr;
+ULONG tlmm_central_base_addr;
 struct DWC_ETH_QOS_prv_data *gDWC_ETH_QOS_prv_data;
 struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx = {0};
 
@@ -765,9 +768,26 @@ err_out:
 	return ret;
 }
 
+static int DWC_ETH_QOS_iounmap(void)
+{
+	if (dwc_eth_qos_base_addr)
+		iounmap((void __iomem *)dwc_eth_qos_base_addr);
+
+	dwc_eth_qos_base_addr = NULL;
+
+	if (dwc_rgmii_io_csr_base_addr)
+		iounmap((void __iomem *)dwc_rgmii_io_csr_base_addr);
+
+	dwc_rgmii_io_csr_base_addr = NULL;
+
+}
+
 static int DWC_ETH_QOS_ioremap(void)
 {
 	int ret = 0;
+
+	dwc_eth_qos_base_addr = NULL;
+	dwc_rgmii_io_csr_base_addr = NULL;
 
 	dwc_eth_qos_base_addr = (ULONG)ioremap(
 	   dwc_eth_qos_res_data.emac_mem_base,
@@ -794,9 +814,61 @@ static int DWC_ETH_QOS_ioremap(void)
 	return ret;
 
 err_out_rgmii_map_failed:
-		iounmap((void __iomem *)dwc_eth_qos_base_addr);
+	DWC_ETH_QOS_iounmap();
 
 err_out_map_failed:
+	return ret;
+}
+
+int DWC_ETH_QOS_update_rgmii_tx_drv_strength(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	int ret = 0;
+	struct resource *resource = NULL;
+	unsigned long tlmm_central_base = 0;
+	unsigned long tlmm_central_size = 0;
+
+	resource = platform_get_resource_byname(pdata->pdev, IORESOURCE_MEM,
+			"tlmm-central-base");
+	if (!resource) {
+		EMACERR("get rgmii-base resource failed\n");
+		ret = -ENODEV;
+		goto err_out;
+	}
+
+	tlmm_central_base = resource->start;
+	tlmm_central_size = resource_size(resource);
+	EMACDBG("tlmm_central_base = 0x%x, size = 0x%x\n",
+			tlmm_central_base, tlmm_central_size);
+
+
+	tlmm_central_base_addr = (ULONG)ioremap(
+	   tlmm_central_base, tlmm_central_size);
+	if ((void __iomem *)tlmm_central_base_addr == NULL) {
+		EMACERR("cannot map dwc_tlmm_central reg memory, aborting\n");
+		ret = -EIO;
+		goto err_out;
+	}
+	EMACDBG("dwc_tlmm_central = %#lx\n", tlmm_central_base_addr);
+
+
+	if (pdata->always_on_phy) {
+		TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_WR(
+		   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_16mA,
+		   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
+		   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA);
+	} else if (pdata->phydev) {
+		if (pdata->phydev->phy_id == ATH8035_PHY_ID){
+			TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_WR(
+			   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
+			   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
+			   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA);
+		}
+	}
+
+err_out:
+	if (tlmm_central_base_addr)
+		iounmap((void __iomem *)tlmm_central_base_addr);
+
 	return ret;
 }
 
@@ -943,8 +1015,15 @@ void DWC_ETH_QOS_resume_clks(struct DWC_ETH_QOS_prv_data *pdata)
 	else
 		DWC_ETH_QOS_set_clk_and_bus_config(pdata, SPEED_10);
 
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+	if (dwc_eth_qos_res_data.ptp_clk)
+		clk_prepare_enable(dwc_eth_qos_res_data.ptp_clk);
+#endif
+
 	pdata->clks_suspended = 0;
-	complete_all(&pdata->clk_enable_done);
+
+	if (pdata->phy_intr_en)
+		complete_all(&pdata->clk_enable_done);
 
 	EMACDBG("Exit\n");
 }
@@ -953,7 +1032,9 @@ void DWC_ETH_QOS_suspend_clks(struct DWC_ETH_QOS_prv_data *pdata)
 {
 	EMACDBG("Enter\n");
 
-	reinit_completion(&pdata->clk_enable_done);
+	if (pdata->phy_intr_en)
+		reinit_completion(&pdata->clk_enable_done);
+
 	pdata->clks_suspended = 1;
 
 	DWC_ETH_QOS_set_clk_and_bus_config(pdata, 0);
@@ -966,6 +1047,11 @@ void DWC_ETH_QOS_suspend_clks(struct DWC_ETH_QOS_prv_data *pdata)
 
 	if (dwc_eth_qos_res_data.rgmii_clk)
 		clk_disable_unprepare(dwc_eth_qos_res_data.rgmii_clk);
+
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+	if (dwc_eth_qos_res_data.ptp_clk)
+		clk_disable_unprepare(dwc_eth_qos_res_data.ptp_clk);
+#endif
 
 	EMACDBG("Exit\n");
 }
@@ -1577,13 +1663,26 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		dev_alert(&pdev->dev, "carrier off till LINK is up\n");
 	}
 
-	if (EMAC_HW_v2_0_0 == pdata->emac_hw_version_type)
+	if ((EMAC_HW_v2_0_0 == pdata->emac_hw_version_type)
+			|| (EMAC_HW_v2_2_0 == pdata->emac_hw_version_type)){
+
+		ret = DWC_ETH_QOS_update_rgmii_tx_drv_strength(pdata);
+
+		if (ret) {
+			EMACERR("Update RGMII tx drv strength failed\n");
+			goto err_out_netdev_failed;
+		}
+	}
+
+	if ((EMAC_HW_v2_0_0 == pdata->emac_hw_version_type) ||
+			(EMAC_HW_v2_2_0 == pdata->emac_hw_version_type))
 		pdata->disable_ctile_pc = 1;
 
 	if (pdata->disable_ctile_pc && !DWC_ETH_QOS_qmp_mailbox_init(pdata)){
 		INIT_WORK(&pdata->qmp_mailbox_work, DWC_ETH_QOS_qmp_mailbox_work);
 		queue_work(system_wq, &pdata->qmp_mailbox_work);
 	}
+
 	DWC_ETH_QOS_create_debugfs(pdata);
 
 	EMACDBG("<-- DWC_ETH_QOS_configure_netdevice\n");
@@ -1897,7 +1996,7 @@ int DWC_ETH_QOS_remove(struct platform_device *pdev)
 		pdata->phy_irq = 0;
 	}
 
-	if (pdata->phy_intr_en && pdata->phy_irq)
+	if (pdata->phy_intr_en)
 		cancel_work_sync(&pdata->emac_phy_work);
 
 	if (pdata->hw_feat.sma_sel == 1)
@@ -1943,6 +2042,7 @@ int DWC_ETH_QOS_remove(struct platform_device *pdev)
 	DWC_ETH_QOS_disable_ptp_clk(&pdev->dev);
 	DWC_ETH_QOS_disable_regulators();
 	DWC_ETH_QOS_free_gpios();
+	DWC_ETH_QOS_iounmap();
 
 	EMACDBG("<-- DWC_ETH_QOS_remove\n");
 
@@ -2026,12 +2126,6 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 		pdata->power_down_type |= DWC_ETH_QOS_EMAC_INTR_WAKEUP;
 		enable_irq_wake(pdata->irq_number);
 
-		/* Set PHY intr as wakeup-capable to handle change in PHY link status after suspend */
-		if (pdata->phy_intr_en && pdata->phy_irq && pdata->phy_wol_wolopts) {
-			pmt_flags |= DWC_ETH_QOS_PHY_INTR_WAKEUP;
-			enable_irq_wake(pdata->phy_irq);
-		}
-
 		return 0;
 	}
 
@@ -2046,9 +2140,6 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 
 	if (pdata->hw_feat.mgk_sel && (pdata->wolopts & WAKE_MAGIC))
 		pmt_flags |= DWC_ETH_QOS_MAGIC_WAKEUP;
-
-	if (pdata->phy_intr_en && pdata->phy_irq && pdata->phy_wol_wolopts)
-		pmt_flags |= DWC_ETH_QOS_PHY_INTR_WAKEUP;
 
 	ret = DWC_ETH_QOS_powerdown(dev, pmt_flags, DWC_ETH_QOS_DRIVER_CONTEXT);
 
@@ -2102,14 +2193,6 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 			pdata->power_down_type &= ~DWC_ETH_QOS_EMAC_INTR_WAKEUP;
 		}
 
-		if (pdata->power_down_type & DWC_ETH_QOS_PHY_INTR_WAKEUP) {
-			disable_irq_wake(pdata->phy_irq);
-			pdata->power_down_type &= ~DWC_ETH_QOS_PHY_INTR_WAKEUP;
-		}
-
-		/* Wakeup reason can be PHY link event or a RX packet */
-		/* Set a wakeup event to ensure enough time for processing */
-		pm_wakeup_event(&pdev->dev, 5000);
 		return 0;
 	}
 
@@ -2119,10 +2202,6 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
-
-	/* Wakeup reason can be PHY link event or a RX packet */
-	/* Set a wakeup event to ensure enough time for processing */
-	pm_wakeup_event(&pdev->dev, 5000);
 
 	DBGPR("<--DWC_ETH_QOS_resume\n");
 
@@ -2167,6 +2246,12 @@ static int DWC_ETH_QOS_init_module(void)
 		return ret;
 	}
 
+	ipc_emac_log_ctxt = ipc_log_context_create(IPCLOG_STATE_PAGES,"emac", 0);
+	if (!ipc_emac_log_ctxt)
+		pr_err("Error creating logging context for emac\n");
+	else
+		pr_info("IPC logging has been enabled for emac\n");
+
 #ifdef DWC_ETH_QOS_CONFIG_DEBUGFS
 	create_debug_files();
 #endif
@@ -2194,6 +2279,9 @@ static void __exit DWC_ETH_QOS_exit_module(void)
 #endif
 
 	platform_driver_unregister(&DWC_ETH_QOS_plat_drv);
+
+	if (ipc_emac_log_ctxt != NULL)
+		ipc_log_context_destroy(ipc_emac_log_ctxt);
 
 	DBGPR("<--DWC_ETH_QOS_exit_module\n");
 }

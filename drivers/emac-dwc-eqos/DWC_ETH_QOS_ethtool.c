@@ -371,7 +371,11 @@ static const struct DWC_ETH_QOS_stats DWC_ETH_QOS_mmc[] = {
 
 #define DWC_ETH_QOS_MMC_STATS_LEN ARRAY_SIZE(DWC_ETH_QOS_mmc)
 
-static const struct ethtool_ops DWC_ETH_QOS_ethtool_no_ops = {
+static const struct ethtool_ops DWC_ETH_QOS_ethtool_ops_always_on_phy = {
+       .get_link = ethtool_op_get_link,
+       .get_ethtool_stats = DWC_ETH_QOS_get_ethtool_stats,
+       .get_strings = DWC_ETH_QOS_get_strings,
+       .get_sset_count = DWC_ETH_QOS_get_sset_count,
 };
 
 static const struct ethtool_ops DWC_ETH_QOS_ethtool_ops = {
@@ -397,7 +401,7 @@ struct ethtool_ops *DWC_ETH_QOS_get_ethtool_ops(
 {
 	/* No phy registered hence no ethtool operations supported */
 	if (pdata->always_on_phy)
-		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_no_ops;
+		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_ops_always_on_phy;
 	else
 		return (struct ethtool_ops *)&DWC_ETH_QOS_ethtool_ops;
 }
@@ -815,10 +819,15 @@ static int DWC_ETH_QOS_set_wol(struct net_device *dev,
 			       struct ethtool_wolinfo *wol)
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
-	u32 support = WAKE_MAGIC | WAKE_UCAST | pdata->phy_wol_supported;
+	u32 emac_wol_support = 0;
 	int ret = 0;
 
-	if (wol->wolopts & ~support)
+	if (pdata->hw_feat.mgk_sel == 1)
+			emac_wol_support |= WAKE_MAGIC;
+	if (pdata->hw_feat.rwk_sel == 1)
+			emac_wol_support |= WAKE_UCAST;
+
+	if (wol->wolopts & ~(emac_wol_support | pdata->phy_wol_supported))
 		return -EOPNOTSUPP;
 
 	if (!device_can_wakeup(&pdata->pdev->dev))
@@ -832,35 +841,43 @@ static int DWC_ETH_QOS_set_wol(struct net_device *dev,
 	 */
 	spin_lock_irq(&pdata->lock);
 
-	pdata->wolopts = 0;
-
 	if (pdata->hw_feat.mgk_sel == 1)
 		pdata->wolopts |= WAKE_MAGIC;
 	if (pdata->hw_feat.rwk_sel == 1)
 		pdata->wolopts |= WAKE_UCAST;
 
-	if (pdata->wolopts)
-		enable_irq_wake(pdata->irq_number);
-	else
-		disable_irq_wake(pdata->irq_number);
-
 	spin_unlock_irq(&pdata->lock);
 
-	device_set_wakeup_enable(&pdata->pdev->dev, pdata->wolopts ? 1 : 0);
-
-	if (pdata->phy_intr_en && pdata->phy_irq && pdata->phy_wol_supported){
-
-		pdata->phy_wol_wolopts = 0;
-
-		if (!phy_ethtool_set_wol(pdata->phydev, wol))
-			pdata->phy_wol_wolopts = pdata->phy_wol_supported;
-
-		if (pdata->phy_wol_wolopts)
-			enable_irq_wake(pdata->phy_irq);
+	if (emac_wol_support && (pdata->wolopts != wol->wolopts)) {
+		if (pdata->wolopts)
+			enable_irq_wake(pdata->irq_number);
 		else
-			disable_irq_wake(pdata->phy_irq);
+			disable_irq_wake(pdata->irq_number);
 
-		device_set_wakeup_enable(&pdata->pdev->dev, pdata->phy_wol_wolopts ? 1 : 0);
+		device_set_wakeup_enable(&pdata->pdev->dev, pdata->wolopts ? 1 : 0);
+	}
+
+	if (pdata->phy_wol_wolopts != wol->wolopts) {
+		if (pdata->phy_intr_en && pdata->phy_wol_supported){
+
+			pdata->phy_wol_wolopts = 0;
+
+			ret = phy_ethtool_set_wol(pdata->phydev, wol);
+
+			if (ret) {
+				EMACERR("set wol in PHY failed\n");
+				return ret;
+			}
+
+			pdata->phy_wol_wolopts = wol->wolopts;
+
+			if (pdata->phy_wol_wolopts)
+				enable_irq_wake(pdata->phy_irq);
+			else
+				disable_irq_wake(pdata->phy_irq);
+
+			device_set_wakeup_enable(&pdata->pdev->dev, pdata->phy_wol_wolopts ? 1 : 0);
+		}
 	}
 
 	DBGPR("<--DWC_ETH_QOS_set_wol\n");
