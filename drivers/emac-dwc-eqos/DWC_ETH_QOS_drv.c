@@ -3770,6 +3770,7 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 #ifdef DWC_ETH_QOS_ENABLE_RX_DESC_DUMP
 			dump_rx_desc(qinx, RX_NORMAL_DESC, desc_data->cur_rx);
 #endif
+			pm_wakeup_event(&pdata->pdev->dev, EMAC_PM_WAKE_TIMER);
 			/* assign it to new skb */
 			skb = buffer->skb;
 			buffer->skb = NULL;
@@ -3977,6 +3978,7 @@ int DWC_ETH_QOS_poll_mq(struct napi_struct *napi, int budget)
 
 	DBGPR("-->DWC_ETH_QOS_poll_mq: budget = %d\n", budget);
 
+	pm_wakeup_event(&pdata->pdev->dev, EMAC_PM_WAKE_TIMER);
 	pdata->xstats.napi_poll_n++;
 	for (qinx = 0; qinx < DWC_ETH_QOS_RX_QUEUE_CNT; qinx++) {
 		rx_queue = GET_RX_QUEUE_PTR(qinx);
