@@ -106,6 +106,29 @@ static const struct DWC_ETH_QOS_stats DWC_ETH_QOS_ipa_gstrings_stats[] = {
 };
 #define DWC_ETH_QOS_IPA_STAT_LEN ARRAY_SIZE(DWC_ETH_QOS_ipa_gstrings_stats)
 
+/*Phy register values */
+#define DWC_ETH_QOS_PHYREGS_READ(m) \
+	{#m, FIELD_SIZEOF(struct DWC_ETH_QOS_phy_regs, m), \
+	offsetof(struct DWC_ETH_QOS_prv_data, phyregs.m)}
+
+static const struct DWC_ETH_QOS_stats DWC_ETH_QOS_phyregs_strings[] = {
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_bmcr),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_bmsr),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_physid1),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_physid2),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_advertise),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_lpa),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_expansion),
+	DWC_ETH_QOS_PHYREGS_READ(phy_auto_nego_np),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_estatus),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_ctrl1000),
+	DWC_ETH_QOS_PHYREGS_READ(phy_mii_stat1000),
+	DWC_ETH_QOS_PHYREGS_READ(phy_ctl),
+	DWC_ETH_QOS_PHYREGS_READ(phy_sts),
+};
+
+#define DWC_ETH_QOS_PHYREGS_READ_LEN ARRAY_SIZE(DWC_ETH_QOS_phyregs_strings)
+
 /* HW extra status */
 #define DWC_ETH_QOS_EXTRA_STAT(m) \
 	{#m, FIELD_SIZEOF(struct DWC_ETH_QOS_extra_stats, m), \
@@ -1051,6 +1074,36 @@ static int DWC_ETH_QOS_set_coalesce(struct net_device *dev,
 	return 0;
 }
 
+static void DWC_ETH_QOS_ethtool_phyregs_read(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_BMCR,
+		&pdata->phyregs.phy_mii_bmcr);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_BMSR,
+		&pdata->phyregs.phy_mii_bmsr);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_PHYSID1,
+		&pdata->phyregs.phy_mii_physid1);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_PHYSID2,
+		&pdata->phyregs.phy_mii_physid2);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_ADVERTISE,
+		&pdata->phyregs.phy_mii_advertise);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_LPA,
+		&pdata->phyregs.phy_mii_lpa);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_EXPANSION,
+		&pdata->phyregs.phy_mii_expansion);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, DWC_ETH_QOS_AUTO_NEGO_NP,
+		&pdata->phyregs.phy_auto_nego_np);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_ESTATUS,
+		&pdata->phyregs.phy_mii_estatus);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_CTRL1000,
+		&pdata->phyregs.phy_mii_ctrl1000);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, MII_STAT1000,
+		&pdata->phyregs.phy_mii_stat1000);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, DWC_ETH_QOS_PHY_CTL,
+		&pdata->phyregs.phy_ctl);
+	DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, DWC_ETH_QOS_PHY_STS,
+		&pdata->phyregs.phy_sts);
+}
+
 /*!
  * \details This function is invoked by kernel when user
  * requests to get the extended statistics about the device.
@@ -1105,6 +1158,15 @@ static void DWC_ETH_QOS_get_ethtool_stats(
 		}
 	}
 
+	/* update phy reg read val*/
+	DWC_ETH_QOS_ethtool_phyregs_read(pdata);
+
+	for (i = 0; i < DWC_ETH_QOS_PHYREGS_READ_LEN; i++) {
+		char *p = (char *)pdata +
+				DWC_ETH_QOS_phyregs_strings[i].stat_offset;
+		data[j++] = (DWC_ETH_QOS_phyregs_strings[i].sizeof_stat ==
+				sizeof(u64)) ? (*(u64 *)p) : (*(u32 *)p);
+	}
 	DBGPR("<--DWC_ETH_QOS_get_ethtool_stats\n");
 }
 
@@ -1150,6 +1212,11 @@ static void DWC_ETH_QOS_get_strings(
 				p += ETH_GSTRING_LEN;
 			}
 		}
+		for (i = 0; i < DWC_ETH_QOS_PHYREGS_READ_LEN; i++) {
+			memcpy(p, DWC_ETH_QOS_phyregs_strings[i].stat_string,
+				ETH_GSTRING_LEN);
+			p += ETH_GSTRING_LEN;
+		}
 		break;
 	default:
 		WARN_ON(1);
@@ -1184,6 +1251,7 @@ static int DWC_ETH_QOS_get_sset_count(struct net_device *dev, int sset)
 		len += DWC_ETH_QOS_EXTRA_STAT_LEN;
 		if (pdata->ipa_enabled)
 			len += DWC_ETH_QOS_IPA_STAT_LEN;
+		len += DWC_ETH_QOS_PHYREGS_READ_LEN;
 		break;
 	default:
 		len = -EOPNOTSUPP;

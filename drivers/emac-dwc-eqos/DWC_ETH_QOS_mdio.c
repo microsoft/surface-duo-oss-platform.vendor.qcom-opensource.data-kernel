@@ -816,7 +816,9 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 				DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_PHY_LINK_DOWN);
 		}
 
-		if (phydev->link == 0)
+		if (phydev->link == 1)
+			pdata->hw_if.start_mac_tx_rx();
+		else if (phydev->link == 0)
 			DWC_ETH_QOS_set_clk_and_bus_config(pdata, SPEED_10);
 	}
 

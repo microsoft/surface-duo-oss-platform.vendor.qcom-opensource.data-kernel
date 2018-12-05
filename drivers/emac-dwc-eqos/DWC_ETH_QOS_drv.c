@@ -782,6 +782,7 @@ void DWC_ETH_QOS_handle_phy_interrupt(struct DWC_ETH_QOS_prv_data *pdata)
 
 	/* Interrupt received for link state change */
 	if (phy_intr_status & LINK_UP_STATE) {
+		pdata->hw_if.stop_mac_tx_rx();
 		EMACDBG("Interrupt received for link UP state\n");
 		phy_mac_interrupt(pdata->phydev, LINK_UP);
 	} else if (phy_intr_status & LINK_DOWN_STATE) {
@@ -1984,12 +1985,10 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
 
-#ifdef DWC_ETH_QOS_TXPOLLING_MODE_ENABLE
     for (qinx = 0; qinx < DWC_ETH_QOS_TX_QUEUE_CNT; qinx++) {
 		/* check for tx descriptor status */
 		DWC_ETH_QOS_tx_interrupt(pdata->dev, pdata, qinx);
     }
-#endif
 
 	for (qinx = 0; qinx < DWC_ETH_QOS_RX_QUEUE_CNT; qinx++) {
 		if (pdata->ipa_enabled && (qinx == IPA_DMA_RX_CH))
@@ -3772,6 +3771,7 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 #ifdef DWC_ETH_QOS_ENABLE_RX_DESC_DUMP
 			dump_rx_desc(qinx, RX_NORMAL_DESC, desc_data->cur_rx);
 #endif
+			pm_wakeup_event(&pdata->pdev->dev, EMAC_PM_WAKE_TIMER);
 			/* assign it to new skb */
 			skb = buffer->skb;
 			buffer->skb = NULL;
@@ -3979,6 +3979,7 @@ int DWC_ETH_QOS_poll_mq(struct napi_struct *napi, int budget)
 
 	DBGPR("-->DWC_ETH_QOS_poll_mq: budget = %d\n", budget);
 
+	pm_wakeup_event(&pdata->pdev->dev, EMAC_PM_WAKE_TIMER);
 	pdata->xstats.napi_poll_n++;
 	for (qinx = 0; qinx < DWC_ETH_QOS_RX_QUEUE_CNT; qinx++) {
 		rx_queue = GET_RX_QUEUE_PTR(qinx);
