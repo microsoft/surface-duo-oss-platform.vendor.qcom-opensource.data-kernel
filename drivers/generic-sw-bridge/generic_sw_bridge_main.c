@@ -37,8 +37,11 @@ static struct gsb_ctx *__gc = NULL;
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 
 static struct proc_dir_entry* proc_file = NULL;
+static struct proc_dir_entry* proc_file_drop_pkts = NULL;
 static struct file_operations proc_file_ops;
+static struct file_operations proc_file_drop_pkts_ops;
 int gsb_enable_ipc_low;
+bool gsb_drop_pkts;
 #define MAX_PROC_SIZE 10
 char tmp_buff[MAX_PROC_SIZE];
 
@@ -469,62 +472,62 @@ static  ssize_t gsb_read_stats(struct file *file,
 	len += scnprintf(buf + len, buf_len - len, "%35s\n\n",
 			"==================================================");
 
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"Total recv from if",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX - Total recv from interface    ",
 			if_info->if_ipa->stats.total_recv_from_if);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp embedded packet",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX Exception embedded packet      ",
 			 if_info->if_ipa->stats.exp_embedded_packet);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp GRO TCP packet",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX Exception GRO TCP packet      ",
 			 if_info->if_ipa->stats.gro_enabled_packet);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"sent to ipa",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX  GSB -> IPA                       ",
 			if_info->if_ipa->stats.sent_to_ipa);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"drop, sent to ipa fail",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX GSB -> IPA Xmit Drops             ",
 			if_info->if_ipa->stats.drop_send_to_ipa_fail);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp,ipa not connected",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX Exception, GSB-> IPA Not Connected",
 			if_info->if_ipa->stats.exception_ipa_not_connected);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp,if is suspended",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX Exception IPA Interface suspended ",
 			if_info->if_ipa->stats.exp_ipa_suspended);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp,insufficient hr",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX Exception, Insufficient IPA header",
 			 if_info->if_ipa->stats.exp_insufficient_hr);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"drop, congestion",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX Drop, GSB<-> IPA Congestion       ",
 			if_info->if_ipa->stats.drop_flow_control_bottleneck);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp, fragmented",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX Exception, Fragmented IP Packet   ",
 			if_info->if_ipa->stats.exception_fragmented);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp, non ip packet",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"RX Exception, Non IP Packet          ",
 			if_info->if_ipa->stats.exception_non_ip_packet);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"IPA exp to stack fail",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX IPA Exception to network device   ",
 			if_info->if_ipa->stats.exp_packet_from_ipa_fail);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp, if down",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX Exp, LAN Intf down                ",
 			 if_info->if_ipa->stats.exp_if_disconnected);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"exp, if down fail",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX Exception IPA Intf disconnect fail",
 			 if_info->if_ipa->stats.exp_if_disconnected_fail);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"TX,sent to if",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX IPA -> GSB Send to Intf           ",
 			if_info->if_ipa->stats.tx_send_to_if);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"TX,sent to if fail",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX IPA -> GSB Send to Intf fail      ",
 			if_info->if_ipa->stats.tx_send_err);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"Writedone from IPA",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX Writedone from IPA                ",
 			if_info->if_ipa->stats.write_done_from_ipa);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"IPA exp packet",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX IPA -> GSB exception packet        ",
 			if_info->if_ipa->stats.exception_packet_from_ipa);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"flow control below low wm",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"TX IPA Flow control hits low Watermark",
 			if_info->if_ipa->stats.ipa_low_watermark_cnt);
 
 
@@ -541,18 +544,18 @@ static  ssize_t gsb_read_stats(struct file *file,
 
 	len += scnprintf(buf + len, buf_len - len, "\n \n");
 
-	len += scnprintf(buf + len, buf_len - len, "%35s %10u\n",
-			"current Queue len: ", pendq_cnt);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10u\n",
+			"GSB Current Queue len:", pendq_cnt);
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
 			"Pending wde: ", pending_wde);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10u\n",
-			"Free ipa desc Count: ", ipa_free_desc_cnt);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10u\n",
-			"max queue len: ", max_pkts_allowed);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10u\n",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10u\n",
+			"Free ipa desc Count:", ipa_free_desc_cnt);
+	len += scnprintf(buf + len, buf_len - len, "%25s %10u\n",
+			"Max queue len:", max_pkts_allowed);
+	len += scnprintf(buf + len, buf_len - len, "%25s %10u\n",
 			"Low Watermark: ", min_pkts_allowed);
-	len += scnprintf(buf + len, buf_len - len, "%35s %10llu\n",
-			"send schedule cnt: ", schedule_cnt);
+	len += scnprintf(buf + len, buf_len - len, "%25s %10llu\n",
+			"Send schedule count:", schedule_cnt);
 
 
 
@@ -560,12 +563,12 @@ static  ssize_t gsb_read_stats(struct file *file,
 	is_suspended = if_info->is_ipa_bridge_suspended;
 	spin_unlock_bh(&pgsb_ctx->gsb_wake_lock);
 
-	len += scnprintf(buf + len, buf_len - len, "%35s %10u\n",
-			"is data src available?",
+	len += scnprintf(buf + len, buf_len - len, "%25s %10u\n",
+			"Is data src available?   ",
 			!is_suspended);
 	len += scnprintf(buf + len, buf_len - len, "\n \n");
-	len += scnprintf(buf + len, buf_len - len, "%35s %10u\n",
-			"is wake source acquired: ", pgsb_ctx->is_wake_src_acquired);
+	len += scnprintf(buf + len, buf_len - len, "%25s %10u\n",
+			"Is wake source acquired: ", pgsb_ctx->is_wake_src_acquired);
 
 	if (len > MAX_BUFF_LEN) len = MAX_BUFF_LEN;
 
@@ -875,6 +878,12 @@ static void gsb_recv_ipa_notification_cb(void *priv, enum ipa_dp_evt_type evt,
 		return;
 	}
 
+	if (gsb_drop_pkts)
+	{
+		dev_kfree_skb(skb);
+		return;
+	}
+
 	if (!if_info->is_connected_to_ipa_bridge)
 	{
 		IPC_ERROR_LOW("called before IPA_CONNECT was called with evt %d \n", evt);
@@ -983,6 +992,12 @@ static void gsb_recv_dl_dp(void *priv, struct sk_buff *skb)
 	if (NULL == pgsb_ctx)
 	{
 		DEBUG_ERROR("Context is NULL\n");
+		dev_kfree_skb(skb);
+		return;
+	}
+
+	if (gsb_drop_pkts)
+	{
 		dev_kfree_skb(skb);
 		return;
 	}
@@ -1878,8 +1893,22 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 	}
 	else
 	{
+
+		if (strncmp(skb->cb, "loop", TAG_LENGTH) == 0)
+		{
+			IPC_TRACE_LOW("tagged skb with string %s found, skbp= %pK\n", skb->cb, skb);
+			return 0;
+		}
+
 		IPC_TRACE_LOW("recvd packet from %s if\n", if_info->if_name);
 		if_info->if_ipa->stats.total_recv_from_if++;
+
+		spin_lock_bh(&if_info->flow_ctrl_lock);
+		if(gsb_drop_pkts) {
+			dev_kfree_skb(skb);
+			ret = GSB_DROP;
+			goto unlock_and_schedule;
+		}
 	}
 
 	if ((atomic_read(&unload_flag) == 1) || pgsb_ctx->module_exiting)
@@ -1908,12 +1937,6 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 				return 0;
 			}
 		}
-	}
-
-	if (strncmp(skb->cb, "loop", TAG_LENGTH) == 0)
-	{
-		IPC_TRACE_LOW("tagged skb with string %s found, skbp= %pK\n", skb->cb, skb);
-		return 0;
 	}
 
 	/*if GRO is enabled for netdev device, let the TCP packet take exception path*/
@@ -2067,7 +2090,16 @@ static ssize_t gsb_proc_read_cb(struct file *filp,char *buf,size_t count,loff_t 
 	if (*offp != 0)
 		return 0;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", gsb_enable_ipc_low);
+	return snprintf(buf, PAGE_SIZE, "ipc: %d drop_set: %d\n",
+							gsb_enable_ipc_low, gsb_drop_pkts);
+}
+
+static ssize_t gsb_drop_pkts_read_cb(struct file *filp,char *buf,size_t count,loff_t *offp )
+{
+	if (*offp != 0)
+		return 0;
+
+	return snprintf(buf, PAGE_SIZE, "drop_set: %d\n", gsb_drop_pkts);
 }
 
 static ssize_t gsb_proc_write_cb(struct file *file,const char *buf,size_t count,loff_t *data )
@@ -2075,6 +2107,7 @@ static ssize_t gsb_proc_write_cb(struct file *file,const char *buf,size_t count,
 {
 	int tmp = 0;
 
+	memset(tmp_buff,0, sizeof(tmp_buff));
 	if(count > MAX_PROC_SIZE)
 		count = MAX_PROC_SIZE;
 	if(copy_from_user(tmp_buff, buf, count))
@@ -2113,6 +2146,24 @@ static ssize_t gsb_proc_write_cb(struct file *file,const char *buf,size_t count,
 	return count;
 }
 
+static ssize_t gsb_drop_pkts_write_cb(struct file *file,
+							const char *buf, size_t count,loff_t *data )
+{
+	bool tmp = 0;
+
+	memset(tmp_buff,0, sizeof(tmp_buff));
+	if(count > MAX_PROC_SIZE)
+		count = MAX_PROC_SIZE;
+	if(copy_from_user(tmp_buff, buf, count))
+		return -EFAULT;
+	if (sscanf(tmp_buff, "%du", &tmp) < 0)
+		pr_err("sscanf failed\n");
+	else {
+			gsb_drop_pkts = tmp;
+	}
+
+	return count;
+}
 
 static int __init gsb_init_module(void)
 {
@@ -2144,6 +2195,16 @@ static int __init gsb_init_module(void)
 		return -EINVAL;
 	}
 
+	memset(&proc_file_drop_pkts_ops,
+				0, sizeof(struct file_operations));
+	proc_file_drop_pkts_ops.owner = THIS_MODULE;
+	proc_file_drop_pkts_ops.read = gsb_drop_pkts_read_cb;
+	proc_file_drop_pkts_ops.write = gsb_drop_pkts_write_cb;
+	if((proc_file = proc_create("gsb_drop_pkts", 0, NULL,
+		&proc_file_drop_pkts_ops)) == NULL) {
+		pr_err("gsb: error creating proc entry\n");
+		return -EINVAL;
+	}
 	pgsb_ctx = kzalloc(sizeof(struct gsb_ctx), GFP_KERNEL);
 	if (pgsb_ctx == NULL)
 	{
@@ -2310,6 +2371,7 @@ static void __exit gsb_exit_module(void)
 	kfree(pgsb_ctx);
 
 	proc_remove(proc_file);
+	proc_remove(proc_file_drop_pkts);
 
 	if (ipc_gsb_log_ctxt != NULL)
 		ipc_log_context_destroy(ipc_gsb_log_ctxt);
