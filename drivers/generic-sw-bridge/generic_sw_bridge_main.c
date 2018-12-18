@@ -1903,7 +1903,6 @@ static int gsb_intercept_packet_in_nw_stack(struct sk_buff *skb)
 		IPC_TRACE_LOW("recvd packet from %s if\n", if_info->if_name);
 		if_info->if_ipa->stats.total_recv_from_if++;
 
-		spin_lock_bh(&if_info->flow_ctrl_lock);
 		if(gsb_drop_pkts) {
 			dev_kfree_skb(skb);
 			ret = GSB_DROP;
