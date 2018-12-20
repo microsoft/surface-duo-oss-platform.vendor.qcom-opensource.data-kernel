@@ -659,7 +659,7 @@ static void ntn_ipa_notify_cb(void *priv, enum ipa_dp_evt_type evt,
 	struct DWC_ETH_QOS_prv_data *pdata = (struct DWC_ETH_QOS_prv_data *)priv;
 	struct DWC_ETH_QOS_prv_ipa_data *ntn_ipa = &pdata->prv_ipa;
 	struct sk_buff *skb = (struct sk_buff *)data;
-	struct iphdr *ip_hdr = NULL;
+	struct iphdr *iph = NULL;
 
 	if(!pdata || !skb) {
 		EMACERR("Null Param %s pdata %p skb %p \n", __func__, pdata, skb);
@@ -680,14 +680,26 @@ static void ntn_ipa_notify_cb(void *priv, enum ipa_dp_evt_type evt,
 		/*Exception packets to network stack*/
 		skb->dev = pdata->dev;
 		skb_record_rx_queue(skb, IPA_DMA_RX_CH);
+		/*workaround solution in the driver to set the skb->protocol to Ipv4
+		 if for L2TP tunnelled IPv4 pkt, IPA HW does not retain the L2 hdr
+		 So if uCP processing has happened, set the protocl to IPv4 else
+		 do normal EH frame processing. currently this issue only applies for
+		 IPv4 */
+		 if ( true == *(u8 *)(skb->cb + 4) ){
+			skb->protocol = htons( ETH_P_IP);
+			iph = (struct iphdr *)skb->data;
+		}
+		else {
 		skb->protocol = eth_type_trans(skb, skb->dev);
-		ip_hdr = (struct iphdr *)(skb_mac_header(skb) + ETH_HLEN);
+			iph = (struct iphdr *)(skb_mac_header(skb) + ETH_HLEN);
+		}
 
 		/* Submit packet to network stack */
 		/* If its a ping packet submit it via rx_ni else use rx */
-		if (ip_hdr->protocol == IPPROTO_ICMP) {
+		if (iph->protocol == IPPROTO_ICMP) {
 			netif_rx_ni(skb);
-		} else if ((pdata->dev->stats.rx_packets %
+		}
+		else if ((pdata->dev->stats.rx_packets %
 				IPA_ETH_RX_SOFTIRQ_THRESH) == 0){
 			netif_rx_ni(skb);
 		} else {
