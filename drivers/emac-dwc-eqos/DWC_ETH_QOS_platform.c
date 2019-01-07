@@ -768,7 +768,7 @@ err_out:
 	return ret;
 }
 
-static int DWC_ETH_QOS_iounmap(void)
+static void DWC_ETH_QOS_iounmap(void)
 {
 	if (dwc_eth_qos_base_addr)
 		iounmap((void __iomem *)dwc_eth_qos_base_addr);

@@ -5223,26 +5223,30 @@ static int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data
 static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 					struct ifr_data_struct *req)
 {
-	unsigned int qinx = req->qinx;
-	struct DWC_ETH_QOS_tx_wrapper_descriptor *tx_desc_data =
-	    GET_TX_WRAPPER_DESC(qinx);
-	struct DWC_ETH_QOS_rx_wrapper_descriptor *rx_desc_data =
-	    GET_RX_WRAPPER_DESC(qinx);
+	unsigned int qinx;
+	struct DWC_ETH_QOS_tx_wrapper_descriptor *tx_desc_data;
+	struct DWC_ETH_QOS_rx_wrapper_descriptor *rx_desc_data;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct net_device *dev = pdata->dev;
 	int ret = 0;
 
-	DBGPR("-->DWC_ETH_QOS_handle_prv_ioctl\n");
-
-	if (qinx > DWC_ETH_QOS_QUEUE_CNT) {
+	if (req->qinx > DWC_ETH_QOS_QUEUE_CNT) {
 		dev_alert(&pdata->pdev->dev,
-			  "Queue number %d is invalid\n", qinx);
+			  "Queue number %d is invalid\n", req->qinx);
 		dev_alert(&pdata->pdev->dev,
 			  "Hardware has only %d Tx/Rx Queues\n",
 			DWC_ETH_QOS_QUEUE_CNT);
 		ret = DWC_ETH_QOS_NO_HW_SUPPORT;
 		return ret;
 	}
+	else
+	{
+		qinx = req->qinx;
+		tx_desc_data = GET_TX_WRAPPER_DESC(qinx);
+		rx_desc_data = GET_RX_WRAPPER_DESC(qinx);
+	}
+
+	DBGPR("-->DWC_ETH_QOS_handle_prv_ioctl\n");
 
 	switch (req->cmd) {
 	case DWC_ETH_QOS_POWERUP_MAGIC_CMD:

@@ -428,7 +428,7 @@ static int DWC_ETH_QOS_phy_init_eee(struct phy_device *phydev,
 */
 bool DWC_ETH_QOS_eee_init(struct DWC_ETH_QOS_prv_data *pdata)
 {
-	struct hw_if_struct *hw_if;
+	struct hw_if_struct *hw_if = NULL;
 	bool ret = false;
 
 	EMACDBG("Enter\n");
@@ -502,12 +502,14 @@ bool DWC_ETH_QOS_eee_init(struct DWC_ETH_QOS_prv_data *pdata)
 #ifndef DWC_ETH_QOS_CUSTOMIZED_EEE_TEST
  phy_eee_failed:
 	 /* In case of failure, reset the PHY link status in MAC_LPI_Control_Status reg */
-	 hw_if->set_eee_pls(0);
+	 if(hw_if){
+		 hw_if->set_eee_pls(0);
 
-	 /* Disable EEE mode */
-	 if (pdata->eee_active) {
-		 hw_if->reset_eee_mode();
-		 pdata->eee_active = 0;
+		 /* Disable EEE mode */
+		 if (pdata->eee_active) {
+			 hw_if->reset_eee_mode();
+			 pdata->eee_active = 0;
+		 }
 	 }
 #endif
 
