@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -145,15 +145,15 @@ ULONG rgmii_io_macro_dll_por_values
 	},
 	[EMAC_HW_v2_3_2] = {
 		[RGMII_IO_MACRO_CONFIG_POR_ARR_INDEX] = {
-		RGMII_IO_MACRO_CONFIG_RGOFFADDR_OFFSET, 0x40C01343 },
+		RGMII_IO_MACRO_CONFIG_RGOFFADDR_OFFSET, 0x00C01343 },
 		[SDCC_HC_REG_DLL_CONFIG_POR_ARR_INDEX] = {
 		SDCC_HC_REG_DLL_CONFIG_RGOFFADDR_OFFSET, 0x2004642C },
 		[SDCC_HC_REG_DDR_CONFIG_POR_ARR_INDEX] = {
-		SDCC_HC_REG_DDR_CONFIG_RGOFFADDR_OFFSET, 0x00000000 },
+		SDCC_HC_REG_DDR_CONFIG_RGOFFADDR_OFFSET, 0x80040800 },
 		[SDCC_HC_REG_DLL_CONFIG_2_POR_ARR_INDEX] = {
 		SDCC_HC_REG_DLL_CONFIG_2_RGOFFADDR_OFFSET, 0x00200000 },
 		[SDCC_USR_CTL_POR_ARR_INDEX] = {
-		SDCC_USR_CTL_RGOFFADDR_OFFSET, 0x00000000 },
+		SDCC_USR_CTL_RGOFFADDR_OFFSET, 	0x00010800 },
 		[RGMII_IO_MACRO_CONFIG_2_POR_ARR_INDEX] = {
 		RGMII_IO_MACRO_CONFIG_2_RGOFFADDR_OFFSET, 0x00002060 },
 	},
@@ -428,6 +428,9 @@ int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *pdata)
 		if (pdata->io_macro_phy_intf == RGMII_MODE)
 			loopback_mode_en = 0x1;
 		rgmii_data_divide_clk = 0x0;
+	} else if (pdata->emac_hw_version_type == EMAC_HW_v2_3_2) {
+		loopback_mode_en = 0x0;
+		rgmii_data_divide_clk = 0x0;
 	} else {
 		loopback_mode_en = 0x0;
 		rgmii_data_divide_clk = 0x1;
@@ -495,6 +498,8 @@ int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *pdata)
 					SDCC_HC_PRG_RCLK_DLY_UDFWR(52);
 				else if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1)
 					SDCC_HC_PRG_RCLK_DLY_UDFWR(104);
+				else if (pdata->emac_hw_version_type == EMAC_HW_v2_3_2)
+				   SDCC_HC_PRG_RCLK_DLY_UDFWR(69);
 				else { /* Program PRG_RCLK_DLY to 57 for a required delay of 1.8 ns */
 					SDCC_HC_PRG_RCLK_DLY_UDFWR(57);
 				}

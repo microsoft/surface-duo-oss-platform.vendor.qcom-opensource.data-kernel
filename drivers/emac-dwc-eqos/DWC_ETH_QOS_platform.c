@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -89,6 +89,45 @@ module_param(phy_interrupt_en, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(phy_interrupt_en,
 		"Enable PHY interrupt [0-DISABLE, 1-ENABLE]");
 
+static ssize_t read_io_macro_reg_dump(struct file *file,
+	char __user *user_buf, size_t count, loff_t *ppos)
+{
+	struct DWC_ETH_QOS_prv_data *pdata = file->private_data;
+	unsigned int len = 0, buf_len = 2000;
+	char* buf;
+	ssize_t ret_cnt;
+	int phydata = 0;
+	int i = 0;
+
+	if (!pdata || !pdata->phydev) {
+		EMACERR(" %s NULL Pointer \n",__func__);
+		return -EINVAL;
+	}
+
+	buf = kzalloc(buf_len, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+        len += scnprintf(buf + len, buf_len - len,
+					 "\n************* IO Macro Reg dump *************\n");
+
+	for (i = 0; i < 29; i++) {
+	   phydata = ioread32((void*) RGMII_IO_BASE_ADDRESS+(i*4));
+	   len += scnprintf(buf + len, buf_len - len,
+						"IOMacro-Reg:(0x%02x)=0x%08x\n",
+						i*4, phydata);
+	}
+
+	if (len > buf_len) {
+		EMACERR(" %s (len > buf_len) buffer not sufficient\n",__func__);
+		len = buf_len;
+	}
+
+	ret_cnt = simple_read_from_buffer(user_buf, count, ppos, buf, len);
+	kfree(buf);
+	return ret_cnt;
+}
+
 static ssize_t read_phy_reg_dump(struct file *file,
 	char __user *user_buf, size_t count, loff_t *ppos)
 {
@@ -114,7 +153,7 @@ static ssize_t read_phy_reg_dump(struct file *file,
 	for (i = 0; i < 32; i++) {
 		DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, i, &phydata);
 		len += scnprintf(buf + len, buf_len - len,
-					 "MII Register (%#x) = %#x\n",
+					 "MII-Reg:(0x%02x)=0x%08x\n",
 					 i, phydata);
 	}
 
@@ -135,9 +174,16 @@ static const struct file_operations fops_phy_reg_dump = {
 	.llseek = default_llseek,
 };
 
+static const struct file_operations fops_io_macro_reg_dump = {
+	.read = read_io_macro_reg_dump,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 int DWC_ETH_QOS_create_debugfs(struct DWC_ETH_QOS_prv_data *pdata)
 {
-	static struct dentry *phy_reg_dump = NULL;
+	static struct dentry *node = NULL;
 
 	if(!pdata) {
 		EMACERR( "Null Param %s \n", __func__);
@@ -151,10 +197,17 @@ int DWC_ETH_QOS_create_debugfs(struct DWC_ETH_QOS_prv_data *pdata)
 		return -ENOMEM;
 	}
 
-	phy_reg_dump = debugfs_create_file("phy_reg_dump", S_IRUSR, pdata->debugfs_dir,
+	node = debugfs_create_file("phy_reg_dump", S_IRUSR, pdata->debugfs_dir,
 				pdata, &fops_phy_reg_dump);
-	if (!phy_reg_dump || IS_ERR(phy_reg_dump)) {
-		EMACERR( "Cannot create debugfs phy_reg_dump %d \n", (int)phy_reg_dump);
+	if (!node || IS_ERR(node)) {
+		EMACERR( "Cannot create debugfs phy_reg_dump %d \n", (int)node);
+		goto fail;
+	}
+
+        node = debugfs_create_file("io_macro_reg_dump", S_IRUSR, pdata->debugfs_dir,
+				pdata, &fops_io_macro_reg_dump);
+	if (!node || IS_ERR(node)) {
+		EMACERR( "Cannot create debugfs io_macro_reg_dump %d \n", (int)node);
 		goto fail;
 	}
 
@@ -704,13 +757,16 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 	dwc_eth_qos_res_data.lpi_intr = resource->start;
 	EMACDBG("lpi-intr = %d\n", dwc_eth_qos_res_data.lpi_intr);
 
-	/* Read emac core version value from dtsi */
-	ret = of_property_read_u32(pdev->dev.of_node, "emac-core-version",
+	if (of_property_read_bool(pdev->dev.of_node, "emac-core-version")) {
+		/* Read emac core version value from dtsi */
+		ret = of_property_read_u32(pdev->dev.of_node, "emac-core-version",
 				&dwc_eth_qos_res_data.emac_hw_version_type);
-	if (ret) {
-		EMACDBG(":resource emac-hw-ver! not present in dtsi\n");
-		dwc_eth_qos_res_data.emac_hw_version_type = EMAC_HW_None;
+		if (ret) {
+			EMACDBG(":cannot read emac-hw-ver!\n");
+			BUG();
+		}
 	}
+
 	EMACDBG(": emac_core_version = %d\n", dwc_eth_qos_res_data.emac_hw_version_type);
 
 	if (of_property_read_bool(pdev->dev.of_node, "dma-bit-mask")) {
@@ -1884,6 +1940,7 @@ smmu_probe_done:
 static int DWC_ETH_QOS_probe(struct platform_device *pdev)
 {
 	int ret = 0;
+	unsigned int data;
 
 	EMACDBG("--> DWC_ETH_QOS_probe\n");
 
@@ -1912,6 +1969,16 @@ static int DWC_ETH_QOS_probe(struct platform_device *pdev)
 	ret = DWC_ETH_QOS_get_clks(&pdev->dev);
 	if (ret)
 		goto err_get_clk_failed;
+
+	if (!of_property_read_bool(pdev->dev.of_node, "emac-core-version")) {
+		EMAC_I0_EMAC_CORE_HW_VERSION_RGRD(data);
+		EMACDBG("Read emac-core-version from register 0x%x\n", data);
+
+		if (EMAC_HW_v2_3_2_RG == data)
+			dwc_eth_qos_res_data.emac_hw_version_type = EMAC_HW_v2_3_2;
+
+		EMACDBG("Set emac-core-version local to 0x%x\n", dwc_eth_qos_res_data.emac_hw_version_type);
+	}
 
 	if (of_property_read_bool(pdev->dev.of_node, "qcom,arm-smmu")) {
 		emac_emb_smmu_ctx.pdev_master = pdev;
