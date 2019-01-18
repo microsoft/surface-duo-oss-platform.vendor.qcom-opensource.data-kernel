@@ -50,6 +50,16 @@ static struct rmnet_nss_ctx *rmnet_nss_find_ctx(struct net_device *dev)
 	return NULL;
 }
 
+static void rmnet_nss_free_ctx(struct rmnet_nss_ctx *ctx)
+{
+	if (ctx) {
+		hash_del(&ctx->hnode);
+		nss_virt_if_unregister(ctx->nss_ctx);
+		nss_virt_if_destroy_sync(ctx->nss_ctx);
+		kfree(ctx);
+	}
+}
+
 /* Pull off an ethernet header. Used for DL exception and UL cases */
 int rmnet_nss_rx(struct sk_buff *skb)
 {
@@ -90,8 +100,8 @@ int rmnet_nss_tx(struct sk_buff *skb)
 
 	rc = nss_virt_if_tx_buf(ctx->nss_ctx, skb);
 	if (rc == NSS_TX_SUCCESS) {
-		/* Increment rmnet_data_device stats.
-		 * Not calling rmnet_data_vnd_rx_fixup() to do this, as
+		/* Increment rmnet_data device stats.
+		 * Don't call rmnet_data_vnd_rx_fixup() to do this, as
 		 * there's no guarantee the skb pointer is still valid.
 		 */
 		dev->stats.rx_packets++;
@@ -99,7 +109,7 @@ int rmnet_nss_tx(struct sk_buff *skb)
 		return 0;
 	}
 
-	return -1;
+	return 1;
 }
 
 /* Called by NSS in the DL exception case.
@@ -110,31 +120,37 @@ int rmnet_nss_tx(struct sk_buff *skb)
 void rmnet_nss_receive(struct net_device *dev, struct sk_buff *skb,
 		       struct napi_struct *napi)
 {
-	if (!rmnet_nss_rx(skb)) {
-		/* reset header pointers */
-		skb_reset_transport_header(skb);
-		skb_reset_network_header(skb);
-		skb_reset_mac_header(skb);
+	if (!skb)
+		return;
 
-		/* reset packet type */
-		skb->pkt_type = PACKET_HOST;
+	if (rmnet_nss_rx(skb))
+		goto drop;
 
-		/* reset protocol type */
-		switch (skb->data[0] & 0xF0) {
-		case 0x40:
-			skb->protocol = htons(ETH_P_IP);
-			break;
-		case 0x60:
-			skb->protocol = htons(ETH_P_IPV6);
-			break;
-		default:
-			kfree_skb(skb);
-			return;
-		}
-		netif_receive_skb(skb);
-	} else {
-		kfree_skb(skb);
+	/* reset header pointers */
+	skb_reset_transport_header(skb);
+	skb_reset_network_header(skb);
+	skb_reset_mac_header(skb);
+
+	/* reset packet type */
+	skb->pkt_type = PACKET_HOST;
+
+	/* reset protocol type */
+	switch (skb->data[0] & 0xF0) {
+	case 0x40:
+		skb->protocol = htons(ETH_P_IP);
+		break;
+	case 0x60:
+		skb->protocol = htons(ETH_P_IPV6);
+		break;
+	default:
+		goto drop;
 	}
+
+	netif_receive_skb(skb);
+	return;
+
+drop:
+	kfree_skb(skb);
 }
 
 /* Create and register an NSS context for an rmnet_data device */
@@ -148,8 +164,10 @@ int rmnet_nss_create_vnd(struct net_device *dev)
 
 	ctx->rmnet_dev = dev;
 	ctx->nss_ctx = nss_virt_if_create_sync(dev);
-	if (!ctx->nss_ctx)
+	if (!ctx->nss_ctx) {
+		kfree(ctx);
 		return -1;
+	}
 
 	nss_virt_if_register(ctx->nss_ctx, rmnet_nss_receive, dev);
 	hash_add_ptr(rmnet_nss_ctx_hashtable, &ctx->hnode, dev);
@@ -162,13 +180,7 @@ int rmnet_nss_free_vnd(struct net_device *dev)
 	struct rmnet_nss_ctx *ctx;
 
 	ctx = rmnet_nss_find_ctx(dev);
-	if (!ctx)
-		return 0;
-
-	hash_del(&ctx->hnode);
-	nss_virt_if_unregister(ctx->nss_ctx);
-	nss_virt_if_destroy_sync(ctx->nss_ctx);
-	kfree(ctx);
+	rmnet_nss_free_ctx(ctx);
 
 	return 0;
 }
@@ -189,8 +201,16 @@ int __init rmnet_nss_init(void)
 
 void __exit rmnet_nss_exit(void)
 {
+	struct hlist_node *tmp;
+	struct rmnet_nss_ctx *ctx;
+	int bkt;
+
 	pr_err("%s(): exiting rmnet_nss\n", __func__);
 	RCU_INIT_POINTER(rmnet_nss_callbacks, NULL);
+
+	/* Tear down all NSS contexts */
+	hash_for_each_safe(rmnet_nss_ctx_hashtable, bkt, tmp, ctx, hnode)
+		rmnet_nss_free_ctx(ctx);
 }
 
 MODULE_LICENSE("GPL v2");
