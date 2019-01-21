@@ -14,6 +14,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/hashtable.h>
 #include <linux/if_ether.h>
 #include <linux/ip.h>
@@ -21,8 +22,21 @@
 
 #include <../net/rmnet_data/rmnet_nss.h>
 
-#define RMNET_NSS_HASH_BITS 8
+static enum __rmnet_nss_stat {
+	RMNET_NSS_RX_ETH,
+	RMNET_NSS_RX_FAIL,
+	RMNET_NSS_RX_NON_ETH,
+	RMNET_NSS_TX_NO_CTX,
+	RMNET_NSS_TX_SUCCESS,
+	RMNET_NSS_TX_FAIL,
+	RMNET_NSS_EXCEPTIONS,
+	RMNET_NSS_EX_BAD_HDR,
+	RMNET_NSS_EX_BAD_IP,
+	RMNET_NSS_EX_SUCCESS,
+	RMNET_NSS_NUM_STATS,
+};
 
+#define RMNET_NSS_HASH_BITS 8
 #define hash_add_ptr(table, node, key) \
 	hlist_add_head(node, &table[hash_ptr(key, HASH_BITS(table))])
 
@@ -33,6 +47,39 @@ struct rmnet_nss_ctx {
 	struct net_device *rmnet_dev;
 	struct nss_virt_if_handle *nss_ctx;
 };
+
+static unsigned long rmnet_nss_stats[RMNET_NSS_NUM_STATS];
+
+#define RMNET_NSS_STAT(name, counter, desc) \
+	module_param_named(name, rmnet_nss_stats[counter], ulong, 0444); \
+	MODULE_PARM_DESC(name, desc)
+
+RMNET_NSS_STAT(rmnet_nss_rx_ethernet, RMNET_NSS_RX_ETH,
+	       "Number of Ethernet headers successfully removed");
+RMNET_NSS_STAT(rmnet_nss_rx_fail, RMNET_NSS_RX_FAIL,
+	       "Number of Ethernet headers that could not be removed");
+RMNET_NSS_STAT(rmnet_nss_rx_non_ethernet, RMNET_NSS_RX_NON_ETH,
+	       "Number of non-Ethernet packets received");
+RMNET_NSS_STAT(rmnet_nss_tx_slow, RMNET_NSS_TX_NO_CTX,
+	       "Number of packets sent over non-NSS-accelerated rmnet device");
+RMNET_NSS_STAT(rmnet_nss_tx_fast, RMNET_NSS_TX_SUCCESS,
+	       "Number of packets sent over NSS-accelerated rmnet device");
+RMNET_NSS_STAT(rmnet_nss_tx_fail, RMNET_NSS_TX_FAIL,
+	       "Number of packets that NSS could not transmit");
+RMNET_NSS_STAT(rmnet_nss_tx_exceptions, RMNET_NSS_EXCEPTIONS,
+	       "Number of times our DL exception handler was invoked");
+RMNET_NSS_STAT(rmnet_nss_exception_non_ethernet, RMNET_NSS_EX_BAD_HDR,
+	       "Number of non-Ethernet exception packets");
+RMNET_NSS_STAT(rmnet_nss_exception_invalid_ip, RMNET_NSS_EX_BAD_IP,
+	       "Number of exception packets with invalid IP headers");
+RMNET_NSS_STAT(rmnet_nss_exception_success, RMNET_NSS_EX_SUCCESS,
+	       "Number of exception packets handled successfully");
+
+static void rmnet_nss_inc_stat(enum __rmnet_nss_stat stat)
+{
+	if (stat >= 0 && stat < RMNET_NSS_NUM_STATS)
+		rmnet_nss_stats[stat]++;
+}
 
 static struct rmnet_nss_ctx *rmnet_nss_find_ctx(struct net_device *dev)
 {
@@ -63,10 +110,16 @@ static void rmnet_nss_free_ctx(struct rmnet_nss_ctx *ctx)
 /* Pull off an ethernet header. Used for DL exception and UL cases */
 int rmnet_nss_rx(struct sk_buff *skb)
 {
-	if (!skb->protocol || skb->protocol == htons(ETH_P_802_3))
-		return !skb_pull(skb, sizeof(struct ethhdr));
-	else
-		return -1;
+	if (!skb->protocol || skb->protocol == htons(ETH_P_802_3)) {
+		void *ret = skb_pull(skb, sizeof(struct ethhdr));
+
+		rmnet_nss_inc_stat((ret) ? RMNET_NSS_RX_ETH :
+					   RMNET_NSS_RX_FAIL);
+		return !ret;
+	}
+
+	rmnet_nss_inc_stat(RMNET_NSS_RX_NON_ETH);
+	return -1;
 }
 
 /* Downlink
@@ -88,8 +141,10 @@ int rmnet_nss_tx(struct sk_buff *skb)
 	u8 version = ((struct iphdr *)skb->data)->version;
 
 	ctx = rmnet_nss_find_ctx(dev);
-	if (!ctx)
+	if (!ctx) {
+		rmnet_nss_inc_stat(RMNET_NSS_TX_NO_CTX);
 		return -EINVAL;
+	}
 
 	eth = (struct ethhdr *)skb_push(skb, sizeof(*eth));
 	memset(&eth->h_dest, 0, ETH_ALEN * 2);
@@ -106,9 +161,11 @@ int rmnet_nss_tx(struct sk_buff *skb)
 		 */
 		dev->stats.rx_packets++;
 		dev->stats.rx_bytes += len;
+		rmnet_nss_inc_stat(RMNET_NSS_TX_SUCCESS);
 		return 0;
 	}
 
+	rmnet_nss_inc_stat(RMNET_NSS_TX_FAIL);
 	return 1;
 }
 
@@ -120,11 +177,15 @@ int rmnet_nss_tx(struct sk_buff *skb)
 void rmnet_nss_receive(struct net_device *dev, struct sk_buff *skb,
 		       struct napi_struct *napi)
 {
+	rmnet_nss_inc_stat(RMNET_NSS_EXCEPTIONS);
+
 	if (!skb)
 		return;
 
-	if (rmnet_nss_rx(skb))
+	if (rmnet_nss_rx(skb)) {
+		rmnet_nss_inc_stat(RMNET_NSS_EX_BAD_HDR);
 		goto drop;
+	}
 
 	/* reset header pointers */
 	skb_reset_transport_header(skb);
@@ -143,9 +204,11 @@ void rmnet_nss_receive(struct net_device *dev, struct sk_buff *skb,
 		skb->protocol = htons(ETH_P_IPV6);
 		break;
 	default:
+		rmnet_nss_inc_stat(RMNET_NSS_EX_BAD_IP);
 		goto drop;
 	}
 
+	rmnet_nss_inc_stat(RMNET_NSS_EX_SUCCESS);
 	netif_receive_skb(skb);
 	return;
 
