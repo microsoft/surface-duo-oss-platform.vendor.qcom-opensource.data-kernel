@@ -2199,7 +2199,7 @@ static int __init gsb_init_module(void)
 	proc_file_drop_pkts_ops.owner = THIS_MODULE;
 	proc_file_drop_pkts_ops.read = gsb_drop_pkts_read_cb;
 	proc_file_drop_pkts_ops.write = gsb_drop_pkts_write_cb;
-	if((proc_file = proc_create("gsb_drop_pkts", 0, NULL,
+	if((proc_file_drop_pkts = proc_create("gsb_drop_pkts", 0, NULL,
 		&proc_file_drop_pkts_ops)) == NULL) {
 		pr_err("gsb: error creating proc entry\n");
 		return -EINVAL;
