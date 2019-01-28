@@ -6146,7 +6146,9 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct ifr_data_struct req;
+#ifdef CONFIG_PPS_OUTPUT
 	struct ETH_PPS_Config eth_pps_cfg;
+#endif
 	struct mii_ioctl_data *data = if_mii(ifr);
 	unsigned int reg_val = 0;
 	int ret = 0;
@@ -6188,13 +6190,15 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	   if (copy_from_user(&req, ifr->ifr_ifru.ifru_data,
 			   sizeof(struct ifr_data_struct)))
 			return -EFAULT;
-		if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
+#ifdef CONFIG_PPS_OUTPUT
+               if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
 			if (copy_from_user(&eth_pps_cfg, req.ptr,
 				sizeof(struct ETH_PPS_Config))) {
 				return -EFAULT;
 			}
 			req.ptr = &eth_pps_cfg;
 		}
+#endif
 		ret = DWC_ETH_QOS_handle_prv_ioctl(pdata, &req);
 		req.command_error = ret;
 
