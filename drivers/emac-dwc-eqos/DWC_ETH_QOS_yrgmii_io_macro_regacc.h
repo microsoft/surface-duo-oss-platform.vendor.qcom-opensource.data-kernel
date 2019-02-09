@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -745,6 +745,13 @@ iowrite32(data, (void *)RGMII_IO_MACRO_CONFIG_2_RGOFFADDR)
 
 #define EMAC_SYSTEM_LOW_POWER_DEBUG_RGRD(data)\
 ((data) = (ioread32((void *)(EMAC_SYSTEM_LOW_POWER_DEBUG_RGOFFADDR))))
+
+/* EMAC_I0_EMAC_CORE_HW_VERSION */
+#define EMAC_I0_EMAC_CORE_HW_VERSION_RGOFFADDR ((volatile ULONG *)\
+(RGMII_IO_BASE_ADDRESS + 0x00000070))
+
+#define EMAC_I0_EMAC_CORE_HW_VERSION_RGRD(data)\
+((data) = (ioread32((void *)(EMAC_I0_EMAC_CORE_HW_VERSION_RGOFFADDR))))
 
 void dump_rgmii_io_macro_registers(void);
 

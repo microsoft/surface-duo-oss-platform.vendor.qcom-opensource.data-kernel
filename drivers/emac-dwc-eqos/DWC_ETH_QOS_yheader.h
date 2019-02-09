@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights
  * reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -707,6 +707,10 @@ extern void *ipc_emac_log_ctxt;
 #define EMAC_HW_v2_3_1 7
 #define EMAC_HW_v2_3_2 8
 #define EMAC_HW_vMAX 9
+
+/* EMAC HW version value from register */
+#define EMAC_HW_v2_3_2_RG 0x20030002
+
 
 /* C data types typedefs */
 typedef unsigned short BOOL;
