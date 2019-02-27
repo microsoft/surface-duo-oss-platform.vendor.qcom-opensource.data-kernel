@@ -792,6 +792,7 @@ void DWC_ETH_QOS_handle_phy_interrupt(struct DWC_ETH_QOS_prv_data *pdata)
 
 		/* Interrupt received for link state change */
 		if (phy_intr_status & LINK_STATE_MASK) {
+			pdata->hw_if.stop_mac_tx_rx();
 			EMACDBG("Interrupt received for link UP state\n");
 			phy_mac_interrupt(pdata->phydev, LINK_UP);
 		} else if (!(phy_intr_status & LINK_STATE_MASK)) {
