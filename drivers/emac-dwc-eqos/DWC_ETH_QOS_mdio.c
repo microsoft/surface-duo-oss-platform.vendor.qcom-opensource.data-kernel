@@ -639,7 +639,7 @@ static void configure_phy_rx_tx_delay(struct DWC_ETH_QOS_prv_data *pdata)
 			set_phy_rx_tx_delay(pdata, ENABLE_RX_DELAY, ENABLE_TX_DELAY);
 		} else {
 			/* Settings for RGMII ID mode. Not applicable to HANA AU */
-			if (pdata->emac_hw_version_type != EMAC_HW_v2_1_0 ||
+			if (pdata->emac_hw_version_type != EMAC_HW_v2_1_0 &&
 				pdata->emac_hw_version_type != EMAC_HW_v2_1_2)
 				set_phy_rx_tx_delay(pdata, DISABLE_RX_DELAY, DISABLE_TX_DELAY);
 		}
