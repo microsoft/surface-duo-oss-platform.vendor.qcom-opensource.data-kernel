@@ -128,6 +128,12 @@
 #ifdef CONFIG_MSM_BOOT_TIME_MARKER
 #include <soc/qcom/boot_stats.h>
 #endif
+
+#include <linux/inetdevice.h>
+#include <net/addrconf.h>
+#include <linux/inet.h>
+#include <asm/uaccess.h>
+
 /* QOS Version Control Macros */
 /* #define DWC_ETH_QOS_VER_4_0 */
 /* Default Configuration is for QOS version 4.1 and above */
@@ -1575,6 +1581,7 @@ struct DWC_ETH_QOS_res_data {
 	struct clk *ptp_clk;
 	unsigned int emac_hw_version_type;
 	bool pps_lpass_conn_en;
+	bool early_eth_en;
 };
 
 struct DWC_ETH_QOS_prv_ipa_data {
@@ -1870,6 +1877,13 @@ struct DWC_ETH_QOS_prv_data {
 	bool print_kpi;
 };
 
+struct ip_params {
+	char mac_addr[18];
+	char link_speed[32];
+	char ip_addr[32];
+	char ipv6_addr[48];
+};
+
 typedef enum {
 	ESAVE,
 	ERESTORE
@@ -2034,6 +2048,8 @@ irqreturn_t DWC_ETH_QOS_PHY_ISR(int irq, void *dev_id);
 
 void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_dma_desc_stats_init(struct DWC_ETH_QOS_prv_data *pdata);
+int DWC_ETH_QOS_add_ipaddr(struct ip_params *ip_info, struct net_device *dev);
+int DWC_ETH_QOS_add_ipv6addr(struct ip_params *ip_info, struct net_device *dev);
 
 /* For debug prints*/
 #define DRV_NAME "qcom-emac-dwc-eqos"

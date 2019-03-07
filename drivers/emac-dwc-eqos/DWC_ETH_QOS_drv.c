@@ -64,6 +64,7 @@ extern wait_queue_head_t avb_class_b_msg_wq;
 #define DEFAULT_START_TIME 0x1900
 
 static INT DWC_ETH_QOS_GSTATUS;
+extern struct ip_params pparams;
 
 /* SA(Source Address) operations on TX */
 unsigned char mac_addr0[6] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55 };
@@ -1846,6 +1847,37 @@ static void DWC_ETH_QOS_default_rx_confs(struct DWC_ETH_QOS_prv_data *pdata)
 	DBGPR("<--DWC_ETH_QOS_default_rx_confs\n");
 }
 
+int DWC_ETH_QOS_add_ipv6addr(struct ip_params *ip_info, struct net_device *dev)
+{
+	int res=0;
+	struct in6_ifreq ir6;
+	char* prefix;
+
+	/*For valid IPv6 address*/
+
+	memset(&ir6, 0, sizeof(ir6));
+	if (1 == in6_pton(ip_info->ipv6_addr, -1, (u8*)&ir6.ifr6_addr.s6_addr32, -1, NULL)) {
+		EMACDBG( "Setup IPv6 address!\r\n");
+		ir6.ifr6_ifindex = dev->ifindex;
+		//ir6.ifr6_prefixlen = 0;
+		if ((prefix = strchr(ip_info->ipv6_addr, '/')) == NULL)
+			ir6.ifr6_prefixlen = 0;
+		else {
+			ir6.ifr6_prefixlen = simple_strtoul(prefix+1, NULL, 0);
+			if (ir6.ifr6_prefixlen > 128)
+				ir6.ifr6_prefixlen = 0;
+		}
+		res = addrconf_add_ifaddr(&init_net, (struct in6_ifreq __user *) &ir6);
+		if (res)
+			EMACERR( "Can't setup IPv6 address!\r\n");
+		else
+			EMACDBG("Assigned IPv6 address: %s\r\n", ip_info->ipv6_addr);
+
+	}
+
+	return res;
+}
+
 /*!
  * \brief API to open a device for data transmission & reception.
  *
@@ -1949,6 +1981,9 @@ static int DWC_ETH_QOS_open(struct net_device *dev)
 #else
 	netif_tx_disable(dev);
 #endif /* end of DWC_ETH_QOS_CONFIG_PGTEST */
+
+	//if (pdata->res_data->early_eth_en)
+		//DWC_ETH_QOS_add_ipv6addr(&pparams, dev);
 
 	EMACDBG("<--DWC_ETH_QOS_open\n");
 
@@ -5088,7 +5123,7 @@ static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data
 	}
 
 	if (eth_pps_cfg->ptpclk_freq > DWC_ETH_QOS_SYSCLOCK){
-		EMACINFO("PPS: PTPCLK_Config: freq=%dHz is too high. Cannot config it\n",
+		EMACDBG("PPS: PTPCLK_Config: freq=%dHz is too high. Cannot config it\n",
 			eth_pps_cfg->ptpclk_freq );
 		return -1;
 	}
@@ -5283,13 +5318,13 @@ int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct
 	if (width >= interval) width = interval - 1;
 	if (width < 0) width = 0;
 
-	EMACINFO("PPS: PPSOut_Config: freq=%dHz, ch=%d, duty=%d\n",
+	EMACDBG("PPS: PPSOut_Config: freq=%dHz, ch=%d, duty=%d\n",
 				eth_pps_cfg->ppsout_freq,
 				eth_pps_cfg->ppsout_ch,
 				eth_pps_cfg->ppsout_duty);
-	EMACINFO(" PPS: with PTP Clock freq=%dHz\n", pdata->ptpclk_freq);
+	EMACDBG(" PPS: with PTP Clock freq=%dHz\n", pdata->ptpclk_freq);
 
-	EMACINFO("PPS: PPSOut_Config: interval=%d, width=%d\n", interval, width);
+	EMACDBG("PPS: PPSOut_Config: interval=%d, width=%d\n", interval, width);
 
 	switch (eth_pps_cfg->ppsout_ch) {
 	case DWC_ETH_QOS_PPS_CH_0:
@@ -5364,7 +5399,7 @@ int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct
 		}
 		break;
 	default:
-		EMACINFO("PPS: PPS output channel is invalid (only CH0/CH1/CH2/CH3 is supported).\n");
+		EMACDBG("PPS: PPS output channel is invalid (only CH0/CH1/CH2/CH3 is supported).\n");
 		return -EOPNOTSUPP;
 	}
 
@@ -6167,7 +6202,7 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case DWC_ETH_QOS_PRV_IOCTL_IPA:
 		if (!pdata->prv_ipa.ipa_uc_ready ) {
 			ret = -EAGAIN;
-			EMACINFO("IPA or IPA uc is not ready \n");
+			EMACDBG("IPA or IPA uc is not ready \n");
 			break;
 		}
 		ret = DWC_ETH_QOS_handle_prv_ioctl_ipa(pdata, ifr);
@@ -6406,8 +6441,7 @@ static int DWC_ETH_QOS_vlan_rx_add_vid(
 	int crc32_val = 0;
 	unsigned int enb_12bit_vhash;
 
-	dev_alert(&pdata->pdev->dev, "-->DWC_ETH_QOS_vlan_rx_add_vid: vid = %d\n",
-		  vid);
+	EMACDBG("-->DWC_ETH_QOS_vlan_rx_add_vid: vid = %d\n", vid);
 
 	if (pdata->vlan_hash_filtering) {
 		/* The upper 4 bits of the calculated CRC are used to
@@ -6440,7 +6474,7 @@ static int DWC_ETH_QOS_vlan_rx_add_vid(
 		pdata->vlan_ht_or_id = vid;
 	}
 
-	dev_alert(&pdata->pdev->dev, "<--DWC_ETH_QOS_vlan_rx_add_vid\n");
+	EMACDBG("<--DWC_ETH_QOS_vlan_rx_add_vid\n");
 	return 0;
 }
 
