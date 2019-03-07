@@ -1116,7 +1116,7 @@ static void DWC_ETH_QOS_tx_buf_free_mem(struct DWC_ETH_QOS_prv_data *pdata,
 									  GET_TX_BUFF_LOGICAL_ADDR(qinx, i),
 									  GET_TX_BUFF_DMA_ADDR(qinx, i));
 				}
-				IPC_LOW("Freed the memory allocated for IPA_DMA_TX_CH for IPA \n");
+				EMACDBG("Freed the memory allocated for IPA_DMA_TX_CH for IPA \n");
 				/* De-Allocate TX DMA Buffer Pool Structure */
 				if (GET_TX_BUFF_POOL_BASE_ADRR(qinx)) {
 					dma_free_coherent(GET_MEM_PDEV_DEV,
@@ -1125,7 +1125,7 @@ static void DWC_ETH_QOS_tx_buf_free_mem(struct DWC_ETH_QOS_prv_data *pdata,
 									  GET_TX_BUFF_POOL_BASE_PADRR(qinx));
 					GET_TX_BUFF_POOL_BASE_ADRR(qinx) = NULL;
 					GET_TX_BUFF_POOL_BASE_PADRR(qinx) = (dma_addr_t)NULL;
-					IPC_LOW("Freed the TX Buffer Pool Structure for IPA_DMA_TX_CH for IPA \n");
+					EMACDBG("Freed the TX Buffer Pool Structure for IPA_DMA_TX_CH for IPA \n");
 				} else {
 					IPCERR_RL("Unable to DeAlloc TX Buff structure\n");
 				}
@@ -1169,7 +1169,7 @@ static void DWC_ETH_QOS_rx_buf_free_mem(struct DWC_ETH_QOS_prv_data *pdata,
 								  GET_RX_BUFF_POOL_BASE_PADRR(qinx));
 				GET_RX_BUFF_POOL_BASE_ADRR(qinx) = NULL;
 				GET_RX_BUFF_POOL_BASE_PADRR(qinx) = (dma_addr_t)NULL;
-				IPC_LOW("Freed the RX Buffer Pool Structure for IPA_DMA_RX_CH for IPA \n");
+				EMACDBG("Freed the RX Buffer Pool Structure for IPA_DMA_RX_CH for IPA \n");
 			} else {
 				IPCERR_RL("Unable to DeAlloc RX Buff structure\n");
 			}
@@ -1856,7 +1856,7 @@ static void DWC_ETH_QOS_re_alloc_skb(struct DWC_ETH_QOS_prv_data *pdata,
 	      __func__, desc_data->skb_realloc_idx, qinx);
 		  
 	if (pdata->ipa_enabled && qinx == IPA_DMA_RX_CH) {
-		IPC_LOW("skb re-allocation is not required for RXCH0 for IPA \n");
+		EMACDBG("skb re-allocation is not required for RXCH0 for IPA \n");
 		return;
 	}
 
