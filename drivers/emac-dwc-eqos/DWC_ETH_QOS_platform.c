@@ -890,6 +890,7 @@ int DWC_ETH_QOS_qmp_mailbox_init(struct DWC_ETH_QOS_prv_data *pdata)
 	pdata->qmp_mbox_chan = mbox_request_channel(pdata->qmp_mbox_client, 0);
 
 	if (IS_ERR(pdata->qmp_mbox_chan)) {
+		devm_kfree(&pdata->pdev->dev, pdata->qmp_mbox_client);
 		EMACERR("qmp reuest channel failed\n");
 		return -1;
 	}
@@ -936,6 +937,16 @@ void DWC_ETH_QOS_qmp_mailbox_work(struct work_struct *work)
 	/* Send QMP message to disable c-tile power collapse */
 	DWC_ETH_QOS_qmp_mailbox_send_message(pdata);
 
+	if (pdata->qmp_mbox_client){
+		devm_kfree(&pdata->pdev->dev, pdata->qmp_mbox_client);
+		pdata->qmp_mbox_client = NULL;
+	}
+
+	if (pdata->qmp_mbox_chan) {
+		mbox_free_channel(pdata->qmp_mbox_chan);
+		pdata->qmp_mbox_chan = NULL;
+	}
+
 	EMACDBG("Exit\n");
 }
 
@@ -945,7 +956,8 @@ int DWC_ETH_QOS_enable_ptp_clk(struct device *dev)
 	int ret;
 	const char* ptp_clock_name;
 
-	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0)
+	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0 ||
+		dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2)
 		ptp_clock_name = "emac_ptp_clk";
 	else
 		ptp_clock_name = "eth_ptp_clk";
@@ -1093,7 +1105,8 @@ static int DWC_ETH_QOS_get_clks(struct device *dev)
 	dwc_eth_qos_res_data.rgmii_clk = NULL;
 	dwc_eth_qos_res_data.ptp_clk = NULL;
 
-	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0) {
+	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0 ||
+		(dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2)) {
 		/* EMAC core version 2.1.0 clocks */
 		axi_clock_name = "emac_axi_clk";
 		ahb_clock_name = "emac_slv_ahb_clk";
@@ -1191,17 +1204,29 @@ static struct notifier_block DWC_ETH_QOS_panic_blk = {
 
 static void DWC_ETH_QOS_disable_regulators(void)
 {
-	if (dwc_eth_qos_res_data.reg_rgmii)
+	if (dwc_eth_qos_res_data.reg_rgmii) {
 		regulator_disable(dwc_eth_qos_res_data.reg_rgmii);
+		devm_regulator_put(dwc_eth_qos_res_data.reg_rgmii);
+		dwc_eth_qos_res_data.reg_rgmii = NULL;
+	}
 
-	if (dwc_eth_qos_res_data.reg_emac_phy)
+	if (dwc_eth_qos_res_data.reg_emac_phy) {
 		regulator_disable(dwc_eth_qos_res_data.reg_emac_phy);
+		devm_regulator_put(dwc_eth_qos_res_data.reg_emac_phy);
+		dwc_eth_qos_res_data.reg_emac_phy = NULL;
+	}
 
-	if (dwc_eth_qos_res_data.reg_rgmii_io_pads)
+	if (dwc_eth_qos_res_data.reg_rgmii_io_pads) {
 		regulator_disable(dwc_eth_qos_res_data.reg_rgmii_io_pads);
+		devm_regulator_put(dwc_eth_qos_res_data.reg_rgmii_io_pads);
+		dwc_eth_qos_res_data.reg_rgmii_io_pads = NULL;
+	}
 
-	if (dwc_eth_qos_res_data.gdsc_emac)
+	if (dwc_eth_qos_res_data.gdsc_emac) {
 		regulator_disable(dwc_eth_qos_res_data.gdsc_emac);
+		devm_regulator_put(dwc_eth_qos_res_data.gdsc_emac);
+		dwc_eth_qos_res_data.gdsc_emac = NULL;
+	}
 }
 
 static int DWC_ETH_QOS_init_regulators(struct device *dev)
@@ -1482,7 +1507,7 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 	DWC_ETH_QOS_get_pdata(pdata);
 #endif
 
-	/* store emac hw version to pdata*/
+	/* store emac hw version in pdata*/
 	pdata->emac_hw_version_type = dwc_eth_qos_res_data.emac_hw_version_type;
 
 	/* Scale the clocks to 10Mbps speed */
