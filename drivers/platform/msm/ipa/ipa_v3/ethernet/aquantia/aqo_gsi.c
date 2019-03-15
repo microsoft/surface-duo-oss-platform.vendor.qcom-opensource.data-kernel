@@ -37,8 +37,8 @@ int aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 	gsi_evt_ring_props.ring_base_addr = ch->desc_mem.daddr;
 	gsi_evt_ring_props.ring_base_vaddr = NULL;
 
-	gsi_evt_ring_props.int_modt = aqo_dev->ch_rx.gsi_modt; // FIXME:
-	gsi_evt_ring_props.int_modc = aqo_dev->ch_rx.gsi_modc; // FIXME:
+	gsi_evt_ring_props.int_modt = aqo_dev->ch_rx.gsi_modt;
+	gsi_evt_ring_props.int_modc = aqo_dev->ch_rx.gsi_modc;
 
 	if (aqo_dev->pci_direct) {
 		gsi_evt_ring_props.msi_addr =
@@ -46,101 +46,88 @@ int aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 		gsi_evt_ring_props.msi_addr =
 			AQO_PCI_DIRECT_SET(gsi_evt_ring_props.msi_addr);
 	} else {
-		// TODO: dma_map_resource - ipa_eth_dma_map_resource()
-		pr_crit("AQC: NON PCI DIRECT UNSUPPORTED");
+		aqo_log_bug(aqo_dev, "Only PCI direct access is supported");
+		return -EFAULT;
 	}
 
 	gsi_evt_ring_props.exclusive = true;
-	gsi_evt_ring_props.err_cb = NULL; // FIXME: do we need this? see enum gsi_evt_err
-	gsi_evt_ring_props.user_data = ch; // FIXME: needed by err_cb
-
-	// Unused:
-	//	gsi_evt_ring_props.rp_update_addr
-	// 	gsi_evt_ring_props.intvec
-	// 	gsi_evt_ring_props.evchid_valid
-	// 	gsi_evt_ring_props.evchid
+	gsi_evt_ring_props.err_cb = NULL;
+	gsi_evt_ring_props.user_data = ch;
 
 	memset(&gsi_channel_props, 0, sizeof(gsi_channel_props));
 
 	gsi_channel_props.prot = GSI_CHAN_PROT_AQC;
 	gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 
-#if 0
-	gsi_channel_props.ch_id = ; // set by ipa_eth
-	gsi_channel_props.evt_ring_hdl = ; // set by ipa_eth
-#endif
-
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
 	gsi_channel_props.ring_len = ch->desc_mem.size;
 	gsi_channel_props.max_re_expected = 0;
 
+	/* Use virtual address since the physical pages may be scattered */
 	rc = ipa_eth_gsi_iommu_vamap(ch->desc_mem.daddr, ch->desc_mem.vaddr,
 				     ch->desc_mem.size,
 				     IOMMU_READ | IOMMU_WRITE, true);
 	if (rc) {
-		pr_crit("AQC: FAILED TO MAP RX DESC MEM");
-		return rc;
+		aqo_log_err(aqo_dev,
+			"Failed to map AQC Rx descriptor memory to IPA");
+		goto err_map_desc;
 	}
 
-	pr_crit("AQC: Rx: desc: paddr = %p, daddr = %p", ch->desc_mem.paddr, ch->desc_mem.daddr);
+	aqo_log(aqo_dev,
+		"Mapped %u bytes of AQC Rx descriptor memory at VA %p to DA %p",
+		ch->desc_mem.size, ch->desc_mem.vaddr, ch->desc_mem.daddr);
 
 	gsi_channel_props.ring_base_addr = ch->desc_mem.daddr;
 	gsi_channel_props.ring_base_vaddr = NULL;
 
-	pr_crit("AQC: %s: gsi_channel_props.ring_base_addr=%x", __func__, gsi_channel_props.ring_base_addr);
-	pr_crit("AQC: %s: gsi_channel_props.ring_len=%x", __func__, gsi_channel_props.ring_len);
+	gsi_channel_props.use_db_eng = GSI_CHAN_DIRECT_MODE;
 
-	gsi_channel_props.use_db_eng = GSI_CHAN_DIRECT_MODE; // TODO: double check
+	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
+	gsi_channel_props.low_weight = 1;
 
-	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG; // TODO: double check
-	gsi_channel_props.low_weight = 1; // TODO: double check
-
-#if 0
-	gsi_channel_props.prefetch_mode = ; // set by ipa eth
-	gsi_channel_props.empty_lvl_threshold = ;  // set by ipa eth
-#endif
-
-	gsi_channel_props.xfer_cb = NULL; // FIXME: do we need this?
-	gsi_channel_props.err_cb = NULL; // FIXME: have a handler to log error
-	gsi_channel_props.chan_user_data = ch; // FIXME: do we need this?
-
-	memset(&ch_scratch, 0, sizeof(ch_scratch));
+	gsi_channel_props.xfer_cb = NULL;
+	gsi_channel_props.err_cb = NULL;
+	gsi_channel_props.chan_user_data = ch;
 
 	rc = ipa_eth_gsi_iommu_pamap(ch->buff_mem.daddr, ch->buff_mem.paddr,
 				     ch->buff_mem.size,
 				     IOMMU_READ | IOMMU_WRITE, false);
 	if (rc) {
-		pr_crit("AQC: FAILED TO MAP RX BUFFER MEM");
-		return rc;
+		aqo_log_err(aqo_dev,
+			"Failed to map AQC Rx buffer memory to IPA");
+		goto err_map_buff;
 	}
 
-	pr_crit("AQC: Rx: buff: paddr = %p, daddr = %p", ch->buff_mem.paddr, ch->buff_mem.daddr);
+	aqo_log(aqo_dev,
+		"Mapped %u bytes of AQC Rx buffer memory at PA %p to DA %p",
+		ch->desc_mem.size, ch->desc_mem.paddr, ch->desc_mem.daddr);
+
+	memset(&ch_scratch, 0, sizeof(ch_scratch));
 
 	ch_scratch.data.word1 = lower_32_bits(ch->buff_mem.daddr);
 
 	if (upper_32_bits(ch->buff_mem.daddr) & ~(BIT(8) - 1))
-		pr_crit("AQC: BUFFER MEM UPPER BITS EXCEEDED");
+		aqo_log_bug(aqo_dev,
+			"Excess Rx buffer memory address bits will be ignored");
 
 	ch_scratch.data.word2 = upper_32_bits(ch->buff_mem.daddr);
-	ch_scratch.data.word2 |= (ilog2(2048) << 16);
-
-	pr_crit("AQC: %s: ch_scratch.data.word1=%x", __func__, ch_scratch.data.word1);
-	pr_crit("AQC: %s: ch_scratch.data.word2=%x", __func__, ch_scratch.data.word2);
+	ch_scratch.data.word2 &= (BIT(8) - 1);
+	ch_scratch.data.word2 |= (ilog2(ch->buff_size) << 16);
 
 	rc = ipa_eth_gsi_alloc(ch, &gsi_evt_ring_props, NULL, NULL,
 			&gsi_channel_props, &ch_scratch,
 			&aqo_dev->ch_rx.gsi_db.paddr);
 	if (rc) {
-		pr_crit("AQC: failed to alloc gsi");
-		return rc;
+		aqo_log_err(aqo_dev, "Failed to alloc Rx GSI rings");
+		goto err_gsi_alloc;
 	}
 
 	aqo_dev->ch_rx.gsi_ch = gsi_channel_props.ch_id;
 
-	rc = ipa_eth_gsi_ring_evtring(ch,
-		gsi_evt_ring_props.ring_base_addr + gsi_evt_ring_props.ring_len);
+	rc = ipa_eth_gsi_ring_evtring(ch, gsi_evt_ring_props.ring_base_addr +
+					gsi_evt_ring_props.ring_len);
 	if (rc) {
-		pr_crit("AQC: failed to ring evt ring db");
+		aqo_log_err(aqo_dev, "Failed to ring Rx GSI event ring");
 		goto err_ring_ev;
 	}
 
@@ -148,7 +135,11 @@ int aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 
 err_ring_ev:
 	ipa_eth_gsi_dealloc(ch);
-
+err_gsi_alloc:
+	ipa_eth_gsi_iommu_unmap(ch->buff_mem.daddr, ch->buff_mem.size, false);
+err_map_buff:
+	ipa_eth_gsi_iommu_unmap(ch->desc_mem.daddr, ch->desc_mem.size, true);
+err_map_desc:
 	return rc;
 }
 
@@ -157,10 +148,9 @@ int aqo_gsi_deinit_rx(struct aqo_device *aqo_dev)
 	struct ipa_eth_channel *ch = AQO_ETHDEV(aqo_dev)->ch_rx;
 
 	// TODO: check return value
-	ipa_eth_gsi_ring_evtring(ch, 0);
 	ipa_eth_gsi_dealloc(ch);
-
-	// FIXME: Unmap addresses from SMMU
+	ipa_eth_gsi_iommu_unmap(ch->buff_mem.daddr, ch->buff_mem.size, false);
+	ipa_eth_gsi_iommu_unmap(ch->desc_mem.daddr, ch->desc_mem.size, true);
 
 	return 0;
 }
@@ -196,8 +186,8 @@ int aqo_gsi_init_tx(struct aqo_device *aqo_dev)
 	gsi_evt_ring_props.ring_base_addr = ch->desc_mem.daddr;
 	gsi_evt_ring_props.ring_base_vaddr = NULL;
 
-	gsi_evt_ring_props.int_modt = aqo_dev->ch_tx.gsi_modt; // FIXME:
-	gsi_evt_ring_props.int_modc = aqo_dev->ch_tx.gsi_modc; // FIXME:
+	gsi_evt_ring_props.int_modt = aqo_dev->ch_tx.gsi_modt;
+	gsi_evt_ring_props.int_modc = aqo_dev->ch_tx.gsi_modc;
 
 	if (aqo_dev->pci_direct) {
 		gsi_evt_ring_props.msi_addr =
@@ -205,96 +195,80 @@ int aqo_gsi_init_tx(struct aqo_device *aqo_dev)
 		gsi_evt_ring_props.msi_addr =
 			AQO_PCI_DIRECT_SET(gsi_evt_ring_props.msi_addr);
 	} else {
-		// TODO: dma_map_resource - ipa_eth_dma_map_resource()
-		pr_crit("AQC: NON PCI DIRECT UNSUPPORTED");
+		aqo_log_bug(aqo_dev, "Only PCI direct access is supported");
+		return -EFAULT;
 	}
 
 	gsi_evt_ring_props.exclusive = true;
-	gsi_evt_ring_props.err_cb = NULL; // FIXME: do we need this? see enum gsi_evt_err
-	gsi_evt_ring_props.user_data = ch; // FIXME: needed by err_cb
-
-	// Unused:
-	// 	gsi_evt_ring_props.intvec
-	// 	gsi_evt_ring_props.rp_update_addr
-	// 	gsi_evt_ring_props.evchid_valid
-	// 	gsi_evt_ring_props.evchid
+	gsi_evt_ring_props.err_cb = NULL;
+	gsi_evt_ring_props.user_data = ch;
 
 	memset(&gsi_channel_props, 0, sizeof(gsi_channel_props));
 
 	gsi_channel_props.prot = GSI_CHAN_PROT_AQC;
 	gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
 
-#if 0
-	gsi_channel_props.ch_id = ; // set by ipa_eth
-	gsi_channel_props.evt_ring_hdl = ; // set by ipa_eth
-#endif
-
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
 	gsi_channel_props.ring_len = ch->desc_mem.size;
 	gsi_channel_props.max_re_expected = 0;
 
-
+	/* Use virtual address since the physical pages may be scattered */
 	rc = ipa_eth_gsi_iommu_vamap(ch->desc_mem.daddr, ch->desc_mem.vaddr,
 				     ch->desc_mem.size,
 				     IOMMU_READ | IOMMU_WRITE, true);
 	if (rc) {
-		pr_crit("AQC: FAILED TO MAP TX DESC MEM");
-		return rc;
+		aqo_log_err(aqo_dev,
+			"Failed to map AQC Tx descriptor memory to IPA");
+		goto err_map_desc;
 	}
 
-	pr_crit("AQC: Tx: desc: paddr = %p, daddr = %p", ch->desc_mem.paddr, ch->desc_mem.daddr);
+	aqo_log(aqo_dev,
+		"Mapped %u bytes of AQC Tx descriptor memory at VA %p to DA %p",
+		ch->desc_mem.size, ch->desc_mem.vaddr, ch->desc_mem.daddr);
 
 	gsi_channel_props.ring_base_addr = ch->desc_mem.daddr;
 	gsi_channel_props.ring_base_vaddr = NULL;
 
-	pr_crit("AQC: %s: gsi_channel_props.ring_base_addr=%x", __func__, gsi_channel_props.ring_base_addr);
-	pr_crit("AQC: %s: gsi_channel_props.ring_len=%x", __func__, gsi_channel_props.ring_len);
+	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
 
-	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE; // TODO: double check
+	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
+	gsi_channel_props.low_weight = 1;
 
-	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG; // TODO: double check
-	gsi_channel_props.low_weight = 1; // TODO: double check
-
-#if 0
-	gsi_channel_props.prefetch_mode = ; // set by ipa eth
-	gsi_channel_props.empty_lvl_threshold = ;  // set by ipa eth
-#endif
-
-	gsi_channel_props.xfer_cb = NULL; // FIXME: do we need this?
-	gsi_channel_props.err_cb = NULL; // FIXME: have a handler to log error
-	gsi_channel_props.chan_user_data = ch; // FIXME: do we need this?
-
-	memset(&ch_scratch, 0, sizeof(ch_scratch));
+	gsi_channel_props.xfer_cb = NULL;
+	gsi_channel_props.err_cb = NULL;
+	gsi_channel_props.chan_user_data = ch;
 
 	rc = ipa_eth_gsi_iommu_pamap(ch->buff_mem.daddr, ch->buff_mem.paddr,
 				     ch->buff_mem.size,
 				     IOMMU_READ | IOMMU_WRITE, false);
 	if (rc) {
-		pr_crit("AQC: FAILED TO MAP TX BUFFER MEM");
-		return rc;
+		aqo_log_err(aqo_dev,
+			"Failed to map AQC Tx buffer memory to IPA");
+		goto err_map_buff;
 	}
 
-	pr_crit("AQC: Tx: buff: paddr = %p, daddr = %p", ch->buff_mem.paddr, ch->buff_mem.daddr);
+	aqo_log(aqo_dev,
+		"Mapped %u bytes of AQC Tx buffer memory at PA %p to DA %p",
+		ch->desc_mem.size, ch->desc_mem.paddr, ch->desc_mem.daddr);
 
-	ch_scratch.data.word2 |= (ilog2(2048) << 16);
+	memset(&ch_scratch, 0, sizeof(ch_scratch));
 
-	pr_crit("AQC: %s: ch_scratch.data.word1=%x", __func__, ch_scratch.data.word1);
-	pr_crit("AQC: %s: ch_scratch.data.word2=%x", __func__, ch_scratch.data.word2);
+	ch_scratch.data.word2 |= (ilog2(ch->buff_size) << 16);
 
 	rc = ipa_eth_gsi_alloc(ch, &gsi_evt_ring_props, NULL, NULL,
 			&gsi_channel_props, &ch_scratch,
 			&aqo_dev->ch_tx.gsi_db.paddr);
 	if (rc) {
-		pr_crit("AQC: failed to alloc gsi");
-		return rc;
+		aqo_log_err(aqo_dev, "Failed to alloc Tx GSI rings");
+		goto err_gsi_alloc;
 	}
 
 	aqo_dev->ch_tx.gsi_ch = gsi_channel_props.ch_id;
 
-	rc = ipa_eth_gsi_ring_evtring(ch,
-		gsi_evt_ring_props.ring_base_addr + gsi_evt_ring_props.ring_len);
+	rc = ipa_eth_gsi_ring_evtring(ch, gsi_evt_ring_props.ring_base_addr +
+					gsi_evt_ring_props.ring_len);
 	if (rc) {
-		pr_crit("AQC: failed to ring evt ring db");
+		aqo_log_err(aqo_dev, "Failed to ring Tx GSI event ring");
 		goto err_ring_ev;
 	}
 
@@ -302,7 +276,11 @@ int aqo_gsi_init_tx(struct aqo_device *aqo_dev)
 
 err_ring_ev:
 	ipa_eth_gsi_dealloc(ch);
-
+err_gsi_alloc:
+	ipa_eth_gsi_iommu_unmap(ch->buff_mem.daddr, ch->buff_mem.size, false);
+err_map_buff:
+	ipa_eth_gsi_iommu_unmap(ch->desc_mem.daddr, ch->desc_mem.size, true);
+err_map_desc:
 	return rc;
 }
 
@@ -312,8 +290,8 @@ int aqo_gsi_deinit_tx(struct aqo_device *aqo_dev)
 
 	// TODO: check return value
 	ipa_eth_gsi_dealloc(ch);
-
-	// FIXME: Unmap addresses from SMMU
+	ipa_eth_gsi_iommu_unmap(ch->buff_mem.daddr, ch->buff_mem.size, false);
+	ipa_eth_gsi_iommu_unmap(ch->desc_mem.daddr, ch->desc_mem.size, true);
 
 	return 0;
 }
@@ -326,13 +304,13 @@ int aqo_gsi_start_tx(struct aqo_device *aqo_dev)
 
 	rc = ipa_eth_gsi_start(ch);
 	if (rc) {
-		pr_crit("AQC: failed to start gsi channel");
+		aqo_log_err(aqo_dev, "Failed to start Tx GSI rings");
 		return rc;
 	}
 
 	rc = ipa_eth_gsi_ring_channel(ch, chdb_val);
 	if (rc) {
-		pr_crit("AQC: failed to ring ch db");
+		aqo_log_err(aqo_dev, "Failed to ring Tx GSI channel");
 		ipa_eth_gsi_stop(ch);
 		return rc;
 	}

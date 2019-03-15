@@ -46,36 +46,20 @@ struct uc_cmd_param_aqc_deinit
 
 int aqo_uc_init_peripheral(u64 per_base)
 {
-	int rc;
 	struct uc_cmd_param_aqc_init param;
-
-	pr_crit("AQC: aqo_uc_init_rx started");
 
 	memset(&param, 0, sizeof(param));
 
 	param.periph_baddr_lsb = lower_32_bits(per_base);
 	param.periph_baddr_msb = upper_32_bits(per_base);
 
-	pr_crit("AQC: param.periph_baddr_lsb=%x", param.periph_baddr_lsb);
-	pr_crit("AQC: param.periph_baddr_msb=%x", param.periph_baddr_msb);
-
-	rc = ipa_eth_uc_send_cmd(IPA_ETH_UC_OP_PER_INIT, UC_PROT_AQC,
+	return ipa_eth_uc_send_cmd(IPA_ETH_UC_OP_PER_INIT, UC_PROT_AQC,
 			&param, sizeof(param));
-	if (rc) {
-		pr_crit("AQC: ipa_eth_uc_send_cmd failed");
-	} else {
-		pr_crit("AQC: ipa_eth_uc_send_cmd successful");
-	}
-
-	return rc;
 }
 
 int aqo_uc_setup_channel(bool tx, u8 aqc_ch, u8 gsi_ch)
 {
-	int rc;
 	struct uc_cmd_param_aqc_setup param_setup;
-
-	pr_crit("AQC: aqo_uc_start_rx started");
 
 	memset(&param_setup, 0, sizeof(param_setup));
 
@@ -83,55 +67,28 @@ int aqo_uc_setup_channel(bool tx, u8 aqc_ch, u8 gsi_ch)
 	param_setup.aqc_ch = aqc_ch;
 	param_setup.gsi_ch = gsi_ch;
 
-	rc = ipa_eth_uc_send_cmd(IPA_ETH_UC_OP_CH_SETUP, UC_PROT_AQC,
+	return ipa_eth_uc_send_cmd(IPA_ETH_UC_OP_CH_SETUP, UC_PROT_AQC,
 			&param_setup, sizeof(param_setup));
-	if (rc) {
-		pr_crit("AQC: ipa_eth_uc_send_cmd setup failed");
-	} else {
-		pr_crit("AQC: ipa_eth_uc_send_cmd setup successful");
-	}
-
-	return rc;
 }
 
 int aqo_uc_teardown_channel(u8 gsi_ch)
 {
-	int rc;
 	struct uc_cmd_param_aqc_teardown param_teardown;
-
-	pr_crit("AQC: aqo_uc_stop_rx started");
 
 	memset(&param_teardown, 0, sizeof(param_teardown));
 
 	param_teardown.gsi_ch = gsi_ch;
 
-	rc = ipa_eth_uc_send_cmd(IPA_ETH_UC_OP_CH_TEARDOWN, UC_PROT_AQC,
+	return ipa_eth_uc_send_cmd(IPA_ETH_UC_OP_CH_TEARDOWN, UC_PROT_AQC,
 			&param_teardown, sizeof(param_teardown));
-	if (rc) {
-		pr_crit("AQC: ipa_eth_uc_send_cmd teardown failed");
-	} else {
-		pr_crit("AQC: ipa_eth_uc_send_cmd teardown successful");
-	}
-
-	return rc;
 }
 
 int aqo_uc_deinit_peripheral(void)
 {
-	int rc;
 	struct uc_cmd_param_aqc_deinit param_deinit;
-
-	pr_crit("AQC: aqo_uc_deinit_rx started");
 
 	memset(&param_deinit, 0, sizeof(param_deinit));
 
-	rc = ipa_eth_uc_send_cmd(IPA_ETH_UC_OP_PER_DEINIT, UC_PROT_AQC,
+	return ipa_eth_uc_send_cmd(IPA_ETH_UC_OP_PER_DEINIT, UC_PROT_AQC,
 			&param_deinit, sizeof(param_deinit));
-	if (rc) {
-		pr_crit("AQC: ipa_eth_uc_send_cmd teardown failed");
-	} else {
-		pr_crit("AQC: ipa_eth_uc_send_cmd teardown successful");
-	}
-
-	return rc;
 }
