@@ -20,7 +20,13 @@ static int proxy_init_uc(struct aqo_device *aqo_dev)
 {
 	struct aqo_proxy_uc_context *uc_ctx = &aqo_dev->ch_rx.proxy.uc_ctx;
 
-	uc_ctx->aqc_base = aqo_dev->regs_base.daddr;
+	if (aqo_dev->pci_direct) {
+		uc_ctx->aqc_base = aqo_dev->regs_base.paddr;
+	} else {
+		// TODO: dma_map_resource - ipa_eth_dma_map_resource()
+		pr_crit("AQC: NON PCI DIRECT UNSUPPORTED");
+	}
+
 	uc_ctx->aqc_ch = AQO_ETHDEV(aqo_dev)->ch_rx->queue;
 	uc_ctx->gsi_ch = aqo_dev->ch_rx.gsi_ch;
 

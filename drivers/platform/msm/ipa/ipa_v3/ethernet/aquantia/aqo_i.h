@@ -99,9 +99,7 @@ struct aqo_device {
 	struct list_head device_list;
 
 	struct pci_dev *pci_dev;
-
 	struct ipa_eth_device *eth_dev;
-	struct platform_device *pf_dev;
 
 	struct ipa_eth_resource regs_base;
 
