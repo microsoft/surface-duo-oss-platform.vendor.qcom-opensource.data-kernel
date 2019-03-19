@@ -28,7 +28,7 @@
 static LIST_HEAD(aqo_devices);
 static DEFINE_MUTEX(aqo_devices_lock);
 
-static const char aqo_driver_name[] = "aqc-ipa";
+static const char aqo_driver_name[] = AQO_DRIVER_NAME;
 
 static const u32 PCI_VENDOR_ID_AQUANTIA = 0x1d6a;
 
@@ -51,7 +51,8 @@ static int aqo_parse_rx_proxy_uc(struct device_node *np,
 	key = "qcom,proxy-msi-addr";
 	rc = of_property_read_u64(np, key, &val64);
 	if (rc) {
-		pr_crit("AQC: %s DT prop missing for %s", key, np->name);
+		aqo_log_err(aqo_dev,
+			"%s DT prop is missing for %s", key, np->name);
 		return rc;
 	}
 
@@ -60,13 +61,16 @@ static int aqo_parse_rx_proxy_uc(struct device_node *np,
 	key = "qcom,proxy-msi-data";
 	rc = of_property_read_u32(np, key, &val32);
 	if (rc) {
-		pr_crit("AQC: %s DT prop missing for %s", key, np->name);
+		aqo_log_err(aqo_dev,
+			"%s DT prop is missing for %s", key, np->name);
 		return rc;
 	}
 
 	aqo_dev->ch_rx.proxy.uc_ctx.msi_data = val32;
 
 	aqo_dev->ch_rx.proxy.uc_ctx.valid = true;
+
+	aqo_log(aqo_dev, "Rx proxy via IPA uC is available");
 
 	return 0;
 }
@@ -81,17 +85,15 @@ static int aqo_parse_rx_proxy_host(struct device_node *np,
 	unsigned long hwirq;
 	struct irq_data *irqd;
 
-	pr_crit("AQC: PARSING HOST PROXY\n");
-
 	irq = irq_of_parse_and_map(np, 0);
 	if (!irq) {
-		pr_crit("AQC: Failed to parse irq from DT");
+		aqo_log_err(aqo_dev,"IRQ information missing in DT");
 		return -EINVAL;
 	}
 
 	preg = of_get_address(np, 0, 0, 0);
 	if (!preg) {
-		pr_crit("AQC: Failed to read 'reg' property");
+		aqo_log_err(aqo_dev,"Interrupt pending register missing in DT");
 		return -EFAULT;
 	}
 
@@ -99,18 +101,21 @@ static int aqo_parse_rx_proxy_host(struct device_node *np,
 
 	irqd = irq_get_irq_data(irq);
 	if (!irqd) {
-		pr_crit("AQC: Failed to get irq data");
+		aqo_log_err(aqo_dev, "Failed to extract IRQ data for irq %u",
+				irq);
 		return -EFAULT;
 	}
 
 	hwirq = irqd_to_hwirq(irqd);
 	if (!hwirq) {
-		pr_crit("AQC: Failed to get hwirq number");
+		aqo_log_err(aqo_dev, "Failed to extract HW IRQ for irq %u",
+				irq);
 		return -EFAULT;
 	}
 
 	if (strcmp(irqd->chip->name, "GIC-0")) {
-		pr_crit("AQC: Unsupported interrupt controller");
+		aqo_log_err(aqo_dev,
+				"Unsupported IRQ chip %s", irqd->chip->name);
 		return -EFAULT;
 	}
 
@@ -119,12 +124,17 @@ static int aqo_parse_rx_proxy_host(struct device_node *np,
 		reg + (0x4 * (hwirq / 32));
 	aqo_dev->ch_rx.proxy.host_ctx.msi_data = 1 << (hwirq % 32);
 
-	pr_crit("AQC: IRQ=%u, HWIRQ=%u", irq, hwirq);
-	pr_crit("AQC: REG=%llx", reg);
-	pr_crit("AQC: MSI ADDR=%lx", aqo_dev->ch_rx.proxy.host_ctx.msi_addr.paddr);
-	pr_crit("AQC: MSI DATA=%lx", aqo_dev->ch_rx.proxy.host_ctx.msi_data);
+	aqo_log_dbg(aqo_dev,
+			"MSI irq: %u, hwirq: %u, ispendr: %llx",
+			irq, hwirq, reg);
+	aqo_log_dbg(aqo_dev,
+			"MSI addr: %lx, data: %lx",
+			aqo_dev->ch_rx.proxy.host_ctx.msi_addr.paddr,
+			aqo_dev->ch_rx.proxy.host_ctx.msi_data);
 
 	aqo_dev->ch_rx.proxy.host_ctx.valid = true;
+
+	aqo_log(aqo_dev, "Rx proxy via Host is available");
 
 	return 0;
 }
@@ -139,7 +149,8 @@ static int aqo_parse_rx_proxy(struct device_node *np,
 	key = "qcom,proxy-agent";
 	rc = of_property_read_string(np, key, &str);
 	if (rc) {
-		pr_crit("AQC: %s missing in %s", key, np->name);
+		aqo_log_err(aqo_dev,
+			"%s DT prop is missing for %s", key, np->name);
 		return rc;
 	}
 
@@ -149,7 +160,7 @@ static int aqo_parse_rx_proxy(struct device_node *np,
 	if (!strcmp(str, "host"))
 		return aqo_parse_rx_proxy_host(np, aqo_dev);
 
-	pr_crit("AQC: unknown proxy agent type: %s", str);
+	aqo_log_err(aqo_dev, "Invalid proxy agent type %s", str);
 
 	return -EINVAL;
 }
@@ -164,7 +175,7 @@ static int aqo_parse_rx_proxies(struct device_node *np,
 	for (i = 0; (pnp = of_parse_phandle(np, "qcom,rx-proxy", i)); i++) {
 		rc = aqo_parse_rx_proxy(pnp, aqo_dev);
 		if (rc) {
-			pr_crit("AQC: failed to process rx-proxy %d", i);
+			aqo_log_err(aqo_dev, "Failed to parse proxy %d", i);
 			break;
 		}
 	}
@@ -172,16 +183,16 @@ static int aqo_parse_rx_proxies(struct device_node *np,
 	return rc;
 }
 
-static int aqo_parse_dt(struct device *dev, struct aqo_device *aqo_dev)
+static int __aqo_parse_dt(struct aqo_device *aqo_dev)
 {
-	int rc = 0;
+	int rc;
 	u32 val32;
 	const char *key;
-	struct device_node *np = dev->of_node;
+	struct device_node *np = aqo_dev->eth_dev->dev->of_node;
 
 	rc = aqo_parse_rx_proxies(np, aqo_dev);
 	if (rc) {
-		pr_crit("AQC: failed to parse rx proxies");
+		aqo_log_err(aqo_dev, "Failed to parse proxies");
 		return rc;
 	}
 
@@ -190,8 +201,10 @@ static int aqo_parse_dt(struct device *dev, struct aqo_device *aqo_dev)
 	if (!rc) {
 		aqo_dev->ch_rx.gsi_modc = val32;
 	} else {
-		pr_crit("AQC: %s missing for %s, using default", key, np->name);
 		aqo_dev->ch_rx.gsi_modc = AQO_GSI_DEFAULT_RX_MODC;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, aqo_dev->ch_rx.gsi_modc);
 	}
 
 	key = "qcom,rx-gsi-mod-timer";
@@ -199,8 +212,10 @@ static int aqo_parse_dt(struct device *dev, struct aqo_device *aqo_dev)
 	if (!rc) {
 		aqo_dev->ch_rx.gsi_modt = val32;
 	} else {
-		pr_crit("AQC: %s missing for %s, using default", key, np->name);
 		aqo_dev->ch_rx.gsi_modt = AQO_GSI_DEFAULT_RX_MODT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, aqo_dev->ch_rx.gsi_modt);
 	}
 
 	key = "qcom,tx-gsi-mod-count";
@@ -208,8 +223,10 @@ static int aqo_parse_dt(struct device *dev, struct aqo_device *aqo_dev)
 	if (!rc) {
 		aqo_dev->ch_tx.gsi_modc = val32;
 	} else {
-		pr_crit("AQC: %s missing for %s, using default", key, np->name);
 		aqo_dev->ch_tx.gsi_modc = AQO_GSI_DEFAULT_TX_MODC;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, aqo_dev->ch_tx.gsi_modc);
 	}
 
 	key = "qcom,tx-gsi-mod-timer";
@@ -217,18 +234,26 @@ static int aqo_parse_dt(struct device *dev, struct aqo_device *aqo_dev)
 	if (!rc) {
 		aqo_dev->ch_tx.gsi_modt = val32;
 	} else {
-		pr_crit("AQC: %s missing for %s, using default", key, np->name);
 		aqo_dev->ch_tx.gsi_modt = AQO_GSI_DEFAULT_TX_MODT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, aqo_dev->ch_tx.gsi_modt);
 	}
 
-	if (of_property_read_u32(np, "qcom,rx-mod-usecs", &val32))
+	key = "qcom,rx-mod-usecs";
+	if (of_property_read_u32(np, key, &val32)) {
 		val32 = AQO_DEFAULT_RX_MOD_USECS;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, val32);
+	}
 
 	aqo_dev->rx_mod_usecs = clamp_val(val32, AQO_MIN_RX_MOD_USECS,
 						AQO_MAX_RX_MOD_USECS);
 
 	if (val32 != aqo_dev->rx_mod_usecs)
-		pr_crit("AQC: Rx interrupt moderation clamped at %u usecs\n",
+		aqo_log(aqo_dev,
+			"Rx interrupt moderation clamped at %u usecs",
 			aqo_dev->rx_mod_usecs);
 
 	aqo_dev->pci_direct = of_property_read_bool(np, "qcom,use-pci-direct");
@@ -236,83 +261,94 @@ static int aqo_parse_dt(struct device *dev, struct aqo_device *aqo_dev)
 	return rc;
 }
 
-static struct aqo_device *aqo_parse_dev(struct device *dev)
+static int aqo_parse_dt(struct aqo_device *aqo_dev)
 {
-	int rc;
-	struct aqo_device *aqo_dev;
+	struct device *dev = aqo_dev->eth_dev->dev;
 
 	if (!of_match_node(aquantia_of_matches, dev->of_node)) {
-		dev_notice(dev, "device tree node is not compatible\n");
-		return ERR_PTR(-EINVAL);
+		aqo_log_err(aqo_dev, "Device tree node is not compatible");
+		return -EINVAL;
 	}
-
-	aqo_dev = devm_kzalloc(dev, sizeof(*aqo_dev), GFP_KERNEL);
-	if (!aqo_dev)
-		return NULL;
 
 	aqo_dev->ch_rx.proxy.agent = AQO_PROXY_DEFAULT_AGENT;
 
-	rc = aqo_parse_dt(dev, aqo_dev);
-	if (rc) {
-		devm_kfree(dev, aqo_dev);
-		return ERR_PTR(rc);
-	}
-
-	return aqo_dev;
+	return __aqo_parse_dt(aqo_dev);
 }
 
-static struct aqo_device *aqo_parse_pci(struct device *dev)
+static int aqo_parse_pci(struct aqo_device *aqo_dev)
 {
-	struct aqo_device *aqo_dev;
+	struct device *dev = aqo_dev->eth_dev->dev;
 	struct pci_dev *pci_dev = container_of(dev, struct pci_dev, dev);
 
-	if (dev->bus != &pci_bus_type)
-		return ERR_PTR(-EINVAL);
+	if (dev->bus != &pci_bus_type) {
+		aqo_log(aqo_dev, "Device bus type is not PCI");
+		return -EINVAL;
+	}
 
-	if (!pci_match_id(aquantia_pci_ids, pci_dev))
-		return ERR_PTR(-ENODEV);
+	if (!pci_match_id(aquantia_pci_ids, pci_dev)) {
+		aqo_log(aqo_dev, "Device PCI ID is not compatible");
+		return -ENODEV;
+	}
 
-	aqo_dev = aqo_parse_dev(dev);
-	if (IS_ERR_OR_NULL(aqo_dev))
-		return aqo_dev;
+	aqo_dev->regs_base.paddr = pci_resource_start(pci_dev, 0);
+	aqo_dev->regs_base.size = pci_resource_len(pci_dev, 0);
 
-	aqo_dev->pci_dev = pci_dev;
+	aqo_log(aqo_dev, "PCI BAR 0 is at %p, size %zx",
+		aqo_dev->regs_base.paddr, aqo_dev->regs_base.size);
 
-	aqo_dev->regs_base.paddr = pci_resource_start(AQO_PCIDEV(aqo_dev), 0);
-	aqo_dev->regs_base.size = pci_resource_len(AQO_PCIDEV(aqo_dev), 0);
+	return 0;
+}
 
-	pr_crit("AQC: PCI BAR 0 is at %p, size %zu\n",
-			aqo_dev->regs_base.paddr, aqo_dev->regs_base.size);
+static int aqo_parse(struct aqo_device *aqo_dev)
+{
+	int rc;
 
-	return aqo_dev;
+	rc = aqo_parse_pci(aqo_dev);
+	if (!rc)
+		rc = aqo_parse_dt(aqo_dev);
+
+	return rc;
 }
 
 static int aqo_pci_probe(struct ipa_eth_device *eth_dev)
 {
-	int rc;
-	struct device *dev = eth_dev->dev;
-	struct aqo_device *aqo_dev = aqo_parse_pci(dev);
+	int rc = 0;
+	struct aqo_device *aqo_dev;
 
+	if (!eth_dev || !eth_dev->dev || !eth_dev->nd) {
+		aqo_log_bug(NULL, "Invalid ethernet device structure");
+		return -EFAULT;
+	}
+
+	aqo_dev = devm_kzalloc(eth_dev->dev, sizeof(*aqo_dev), GFP_KERNEL);
 	if (!aqo_dev)
 		return -ENOMEM;
 
-	if (IS_ERR(aqo_dev)) {
-		dev_notice(dev, "Device is not compatible\n");
-		return PTR_ERR(aqo_dev);
+	aqo_dev->eth_dev = eth_dev;
+
+	aqo_log_dbg(aqo_dev, "Probing new device");
+
+	rc = aqo_parse(aqo_dev);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to parse device");
+		goto err_parse;
 	}
 
 	rc = eth_dev->nd->ops->open_device(eth_dev);
 	if (rc) {
-		pr_crit("AQC: Failed to open device");
-		devm_kfree(dev, aqo_dev);
-		return rc;
+		aqo_log_err(aqo_dev, "Failed to open network device");
+		goto err_open;
 	}
 
-	aqo_dev->eth_dev = eth_dev;
+	if (!eth_dev->net_dev) {
+		rc = -EFAULT;
+		aqo_log_bug(aqo_dev, "Missing net_device information");
+		goto err_netdev;
+	}
+
 	aqo_dev->regs_base.vaddr =
 		ioremap_nocache(aqo_dev->regs_base.paddr,
 			aqo_dev->regs_base.size);
-
 
 	mutex_lock(&aqo_devices_lock);
 	list_add(&aqo_dev->device_list, &aqo_devices);
@@ -320,7 +356,16 @@ static int aqo_pci_probe(struct ipa_eth_device *eth_dev)
 
 	eth_dev->od_priv = aqo_dev;
 
+	aqo_log(aqo_dev, "Successfully probed new device");
+
 	return 0;
+
+err_netdev:
+	eth_dev->nd->ops->close_device(eth_dev);
+err_open:
+err_parse:
+	devm_kfree(eth_dev->dev, aqo_dev);
+	return rc;
 }
 
 static void aqo_pci_remove(struct ipa_eth_device *eth_dev)
@@ -328,12 +373,13 @@ static void aqo_pci_remove(struct ipa_eth_device *eth_dev)
 	struct device *dev = eth_dev->dev;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
+	aqo_log(aqo_dev, "Removing device");
+
 	eth_dev->od_priv = NULL;
 
 	mutex_lock(&aqo_devices_lock);
 	list_del(&aqo_dev->device_list);
 	mutex_unlock(&aqo_devices_lock);
-
 
 	iounmap(aqo_dev->regs_base.vaddr);
 
@@ -347,41 +393,31 @@ static int aqo_init_tx(struct ipa_eth_device *eth_dev)
 	int rc = 0;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
-	// 1. AQC - Request Tx Ch
 	rc = aqo_netdev_init_tx_channel(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_netdev_init_tx_channel failed");
+		aqo_log_err(aqo_dev, "Failed to initialize Tx AQC channel");
 		goto err_netdev_init_ch;
-	} else {
-		pr_crit("AQC: aqo_netdev_init_tx_channel succeeded");
 	}
 
-	// 2. IPA - Config IPA EP for Tx
 	rc = ipa_eth_ep_init(AQO_ETHDEV(aqo_dev)->ch_tx);
 	if (rc) {
-		pr_crit("AQC: failed to configure IPA Tx EP");
+		aqo_log_err(aqo_dev, "Failed to initialize Tx IPA endpoint");
 		goto err_ep_init;
-	} else {
-		pr_crit("AQC: ipa_eth_ep_init succeeded for tx");
 	}
 
-	// 3. GSI - Setup Tx
 	rc = aqo_gsi_init_tx(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_gsi_init_tx failed");
+		aqo_log_err(aqo_dev, "Failed to initialize Tx GSI rings");
 		goto err_gsi_init;
-	} else {
-		pr_crit("AQC: aqo_gsi_init_tx succeeded");
 	}
 
-	// 4. AQC - Request Tx Ev
 	rc = aqo_netdev_init_tx_event(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_netdev_init_tx_event failed");
+		aqo_log_err(aqo_dev, "Failed to initialize Tx AQC event");
 		goto err_netdev_init_ev;
-	} else {
-		pr_crit("AQC: aqo_netdev_init_tx_event succeeded");
 	}
+
+	aqo_log(aqo_dev, "Initialized Tx offload");
 
 	return 0;
 
@@ -401,27 +437,23 @@ static int aqo_start_tx(struct ipa_eth_device *eth_dev)
 
 	rc = aqo_netdev_start_tx(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_netdev_start_tx failed");
+		aqo_log_err(aqo_dev, "Failed to start Tx AQC channel");
 		goto err_netdev_start;
-	} else {
-		pr_crit("AQC: aqo_netdev_start_tx succeeded");
 	}
 
 	rc = aqo_gsi_start_tx(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_gsi_start_tx failed");
+		aqo_log_err(aqo_dev, "Failed to start Tx GSI rings");
 		goto err_gsi_start;
-	} else {
-		pr_crit("AQC: aqo_gsi_start_tx succeeded");
 	}
 
 	rc = ipa_eth_ep_start(AQO_ETHDEV(aqo_dev)->ch_tx);
 	if (rc) {
-		pr_crit("AQC: ipa_eth_ep_start failed");
+		aqo_log_err(aqo_dev, "Failed to start Tx IPA endpoint");
 		goto err_ep_start;
-	} else {
-		pr_crit("AQC: ipa_eth_ep_start succeeded");
 	}
+
+	aqo_log(aqo_dev, "Started Tx offload");
 
 	return 0;
 
@@ -441,6 +473,8 @@ static int aqo_stop_tx(struct ipa_eth_device *eth_dev)
 	aqo_gsi_stop_tx(aqo_dev);
 	aqo_netdev_stop_tx(aqo_dev);
 
+	aqo_log(aqo_dev, "Stopped Tx offload");
+
 	return 0;
 }
 
@@ -453,6 +487,8 @@ static int aqo_deinit_tx(struct ipa_eth_device *eth_dev)
 	aqo_gsi_deinit_tx(aqo_dev);
 	aqo_netdev_deinit_tx_channel(aqo_dev);
 
+	aqo_log(aqo_dev, "Deinitialized Tx offload");
+
 	return 0;
 }
 
@@ -461,51 +497,38 @@ static int aqo_init_rx(struct ipa_eth_device *eth_dev)
 	int rc = 0;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
-	// 1. AQC - Request Rx Ch
 	rc = aqo_netdev_init_rx_channel(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_netdev_init_rx_channel failed");
+		aqo_log_err(aqo_dev, "Failed to initialize Rx AQC channel");
 		goto err_netdev_init_ch;
-	} else {
-		pr_crit("AQC: aqo_netdev_init_rx_channel succeeded");
 	}
 
-	// 2. IPA - Config IPA EP for Rx
 	rc = ipa_eth_ep_init(AQO_ETHDEV(aqo_dev)->ch_rx);
 	if (rc) {
-		pr_crit("AQC: failed to configure IPA Rx EP");
+		aqo_log_err(aqo_dev, "Failed to initialize Rx IPA endpoint");
 		goto err_ep_init;
-	} else {
-		pr_crit("AQC: ipa_eth_ep_init succeeded for rx");
 	}
 
-	// 3. GSI - Setup Rx
 	rc = aqo_gsi_init_rx(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_gsi_init_rx failed");
+		aqo_log_err(aqo_dev, "Failed to initialize Rx GSI rings");
 		goto err_gsi_init;
-	} else {
-		pr_crit("AQC: aqo_gsi_init_rx succeeded");
 	}
 
-	// 4. uC - Init
 	rc = aqo_proxy_init(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_proxy_init failed");
+		aqo_log_err(aqo_dev, "Failed to initialize Rx MSI proxy");
 		goto err_proxy_init;
-	} else {
-		pr_crit("AQC: aqo_proxy_init succeeded");
 	}
 
-	// 5. AQC - Request Rx Ev
 	rc = aqo_netdev_init_rx_event(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_netdev_init_rx_event failed");
+		aqo_log_err(aqo_dev, "Failed to initialize Rx AQC event");
 		goto err_netdev_init_ev;
-	} else {
-		pr_crit("AQC: aqo_netdev_init_rx_event succeeded");
 	}
-	
+
+	aqo_log(aqo_dev, "Initialized Rx offload");
+
 	return 0;
 
 err_netdev_init_ev:
@@ -526,36 +549,29 @@ static int aqo_start_rx(struct ipa_eth_device *eth_dev)
 
 	rc = ipa_eth_ep_start(AQO_ETHDEV(aqo_dev)->ch_rx);
 	if (rc) {
-		pr_crit("AQC: ipa_eth_ep_start failed");
+		aqo_log_err(aqo_dev, "Failed to start Rx IPA endpoint");
 		goto err_ep_start;
-	} else {
-		pr_crit("AQC: ipa_eth_ep_start succeeded");
 	}
 
 	rc = aqo_gsi_start_rx(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_gsi_start_rx failed");
+		aqo_log_err(aqo_dev, "Failed to start Rx GSI rings");
 		goto err_gsi_start;
-	} else {
-		pr_crit("AQC: aqo_gsi_start_rx succeeded");
 	}
 
-	// 5. uC - Setup Rx
 	rc = aqo_proxy_start(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_proxy_start failed");
+		aqo_log_err(aqo_dev, "Failed to start Rx MSI proxy");
 		goto err_proxy_start;
-	} else {
-		pr_crit("AQC: aqo_proxy_start succeeded");
 	}
 
 	rc = aqo_netdev_start_rx(aqo_dev);
 	if (rc) {
-		pr_crit("AQC: aqo_netdev_start_rx failed");
+		aqo_log_err(aqo_dev, "Failed to start Rx AQC channel");
 		goto err_netdev_start;
-	} else {
-		pr_crit("AQC: aqo_netdev_start_rx succeeded");
 	}
+
+	aqo_log(aqo_dev, "Started Rx offload");
 
 	return 0;
 
@@ -577,6 +593,8 @@ static int aqo_stop_rx(struct ipa_eth_device *eth_dev)
 	aqo_proxy_stop(aqo_dev);
 	aqo_gsi_stop_rx(aqo_dev);
 
+	aqo_log(aqo_dev, "Stopped Rx offload");
+
 	return 0;
 }
 
@@ -589,6 +607,8 @@ static int aqo_deinit_rx(struct ipa_eth_device *eth_dev)
 	aqo_proxy_deinit(aqo_dev);
 	aqo_gsi_deinit_rx(aqo_dev);
 	aqo_netdev_deinit_rx_channel(aqo_dev);
+
+	aqo_log(aqo_dev, "Deinitialized Rx offload");
 
 	return 0;
 }
@@ -635,7 +655,7 @@ static struct ipa_eth_offload_driver aqo_offload_driver = {
 
 int __init aqo_init(void)
 {
-	pr_crit("AQC: aqo_init called");
+	aqo_log(NULL, "Initializing AQC IPA offload driver");
 
 	return ipa_eth_register_offload_driver(&aqo_offload_driver);
 }
@@ -643,7 +663,7 @@ module_init(aqo_init);
 
 void __exit aqo_exit(void)
 {
-	pr_crit("AQC: aqo_exit called");
+	aqo_log(NULL, "Deinitializing AQC IPA offload driver");
 
 	ipa_eth_unregister_offload_driver(&aqo_offload_driver);
 }

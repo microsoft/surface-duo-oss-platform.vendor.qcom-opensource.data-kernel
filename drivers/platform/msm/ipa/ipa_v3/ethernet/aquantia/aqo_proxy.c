@@ -18,13 +18,14 @@
 
 static int proxy_init_uc(struct aqo_device *aqo_dev)
 {
+	int rc;
 	struct aqo_proxy_uc_context *uc_ctx = &aqo_dev->ch_rx.proxy.uc_ctx;
 
 	if (aqo_dev->pci_direct) {
 		uc_ctx->aqc_base = aqo_dev->regs_base.paddr;
 	} else {
-		// TODO: dma_map_resource - ipa_eth_dma_map_resource()
-		pr_crit("AQC: NON PCI DIRECT UNSUPPORTED");
+		aqo_log_bug(aqo_dev, "Only PCI direct access is supported");
+		return -EFAULT;
 	}
 
 	uc_ctx->aqc_ch = AQO_ETHDEV(aqo_dev)->ch_rx->queue;
@@ -41,79 +42,121 @@ static int proxy_init_uc(struct aqo_device *aqo_dev)
 	if (aqo_dev->pci_direct)
 		uc_ctx->per_base = AQO_PCI_DIRECT_SET(uc_ctx->per_base);
 
-	return aqo_uc_init_peripheral(uc_ctx->per_base);
+	rc = aqo_uc_init_peripheral(uc_ctx->per_base);
+	if (rc)
+		aqo_log_err(aqo_dev, "Failed to execute IPA uC Init command");
+	else
+		aqo_log(aqo_dev, "IPA uC Init command executed");
+
+	return rc;
 }
 
 static int proxy_start_uc(struct aqo_device *aqo_dev)
 {
+	int rc;
 	struct aqo_proxy_uc_context *uc_ctx = &aqo_dev->ch_rx.proxy.uc_ctx;
 
-	return aqo_uc_setup_channel(false, uc_ctx->aqc_ch, uc_ctx->gsi_ch);
+	rc = aqo_uc_setup_channel(false, uc_ctx->aqc_ch, uc_ctx->gsi_ch);
+	if (rc)
+		aqo_log_err(aqo_dev, "Failed to execute IPA uC Setup command");
+	else
+		aqo_log(aqo_dev, "IPA uC Setup command executed");
+
+	return rc;
 }
 
 static int proxy_stop_uc(struct aqo_device *aqo_dev)
 {
+	int rc;
 	struct aqo_proxy_uc_context *uc_ctx = &aqo_dev->ch_rx.proxy.uc_ctx;
 
-	return aqo_uc_teardown_channel(uc_ctx->gsi_ch);
+	rc = aqo_uc_teardown_channel(uc_ctx->gsi_ch);
+	if (rc)
+		aqo_log_err(aqo_dev,
+			"Failed to execute IPA uC Teardown command");
+	else
+		aqo_log(aqo_dev, "IPA uC Teardown command executed");
+
+	return rc;
 }
 
 static int proxy_deinit_uc(struct aqo_device *aqo_dev)
 {
-	return aqo_uc_deinit_peripheral();
+	int rc = aqo_uc_deinit_peripheral();
+	if (rc)
+		aqo_log_err(aqo_dev, "Failed to execute IPA uC Deinit command");
+	else
+		aqo_log(aqo_dev, "IPA uC Denit command executed");
+
+	return rc;
 }
 
 /* Host/Linux as proxy agent */
 
+static inline bool aqc_desc_dd(const u32 *desc_words)
+{
+	return (desc_words[2] & 0x1);
+}
+
 static irqreturn_t proxy_rx_interrupt(int irq, void *data)
 {
-	dma_addr_t desc;
-	u32 new_head;
-	static u32 old_head;
-	struct aqo_proxy_host_context *ctx = data;
-	void *desc_vbase = ctx->desc_vbase;
-	u16 max_head = ctx->desc_count - 1;
+	struct aqo_proxy_host_context *host_ctx = data;
 
-	new_head = readl_relaxed(ctx->aqc_hp) & (BIT(13) - 1);
+	const u32 old_head = host_ctx->head;
+	const u32 max_head = host_ctx->max_head;
+	const void *desc_vbase = host_ctx->desc_vbase;
 
-#if 1
-	//pr_crit("AQC: RECEIVED INTERRUPT head: %x, wp: %x\n", head, desc);
+	u32 head = readl_relaxed(host_ctx->aqc_hp) & (BIT(13) - 1);
 
-	while (new_head != old_head) {
-		u32 last_desc = (new_head == 0) ? max_head : (new_head - 1);
-		u32 *d = desc_vbase + (16 * last_desc);
-		if ((d[2] & 0x1) == 0)
-			new_head = last_desc;
-		else
+	/* AQC MAC moves head pointer once the descriptor write is queued to
+	 * AQC PCI Host Interface (PHI). At the time we read head pointer, it
+	 * is possible that the PHI has yet to commit last descriptor to DDR.
+	 * Reverse iterate through descriptors until we find a valid Rx WrB
+	 * descriptor (Descritor Done bit == 1) and thereby head pointer.
+	 */
+	while (head != old_head) {
+		const u32 phead = (head == 0) ? max_head : (head - 1);
+		const u32 *last_desc = desc_vbase + (16 * phead);
+
+		if (likely(aqc_desc_dd(last_desc)))
 			break;
+
+		head = phead;
 	}
 
-	old_head = new_head;
-#endif
+	host_ctx->head = head;
 
-	desc = ctx->desc_base + (16 * new_head);
-	writel_relaxed((u32)desc, ctx->gsi_db);
+	writel_relaxed((u32)(host_ctx->desc_dbase + (16 * head)),
+		host_ctx->gsi_db);
 
 	return IRQ_HANDLED;
 }
 
 static int proxy_init_host(struct aqo_device *aqo_dev)
 {
-	struct aqo_proxy_host_context *ctx = &aqo_dev->ch_rx.proxy.host_ctx;
+	struct aqo_proxy_host_context *host_ctx =
+		&aqo_dev->ch_rx.proxy.host_ctx;
 
-	ctx->msi_addr.size = 4;
-	ctx->msi_addr.daddr = ctx->msi_addr.paddr;
+	host_ctx->msi_addr.size = 4;
+	host_ctx->msi_addr.daddr = dma_map_resource(AQO_DEV(aqo_dev),
+						host_ctx->msi_addr.paddr,
+						host_ctx->msi_addr.size,
+						DMA_FROM_DEVICE, 0);
 
-	ctx->aqc_base = aqo_dev->regs_base.vaddr;
+	host_ctx->aqc_base = aqo_dev->regs_base.vaddr;
 
-	ctx->aqc_hp = AQC_RX_HEAD_PTR(ctx->aqc_base,
+	host_ctx->aqc_hp = AQC_RX_HEAD_PTR(host_ctx->aqc_base,
 				AQO_ETHDEV(aqo_dev)->ch_rx->queue);
-	ctx->gsi_db = ioremap_nocache(aqo_dev->ch_rx.gsi_db.paddr, 4);
+	host_ctx->gsi_db = ioremap_nocache(aqo_dev->ch_rx.gsi_db.paddr, 4);
 
-	// FIXME: use dma addr?
-	ctx->desc_base = AQO_ETHDEV(aqo_dev)->ch_rx->desc_mem.daddr;
-	ctx->desc_vbase = AQO_ETHDEV(aqo_dev)->ch_rx->desc_mem.vaddr;
-	ctx->desc_count = AQO_ETHDEV(aqo_dev)->ch_rx->desc_mem.size / 16;
+	aqo_log_dbg(aqo_dev, "Mapped GSI DB at %pa to %px",
+			aqo_dev->ch_rx.gsi_db.paddr, host_ctx->gsi_db);
+
+	host_ctx->desc_dbase = AQO_ETHDEV(aqo_dev)->ch_rx->desc_mem.daddr;
+	host_ctx->desc_vbase = AQO_ETHDEV(aqo_dev)->ch_rx->desc_mem.vaddr;
+	host_ctx->max_head = AQO_ETHDEV(aqo_dev)->ch_rx->desc_count - 1;
+
+	aqo_log(aqo_dev, "Initialized Rx MSI host proxy");
 
 	return 0;
 }
@@ -121,32 +164,47 @@ static int proxy_init_host(struct aqo_device *aqo_dev)
 static int proxy_start_host(struct aqo_device *aqo_dev)
 {
 	int rc;
-	struct aqo_proxy_host_context *ctx = &aqo_dev->ch_rx.proxy.host_ctx;
+	struct aqo_proxy_host_context *host_ctx =
+		&aqo_dev->ch_rx.proxy.host_ctx;
 
-	rc = request_irq(ctx->irq, proxy_rx_interrupt, IRQF_TRIGGER_RISING, "aqo-rx-irq", ctx);
-	if (!rc) {
-		pr_crit("AQC: IRQ REGISTERED\n");
-	} else {
-		pr_crit("AQC: FAILED IRQ REGISTER\n");
-	}
+	rc = request_irq(host_ctx->irq, proxy_rx_interrupt,
+				IRQF_TRIGGER_RISING, "aqo-irq", host_ctx);
+	if (rc)
+		aqo_log_err(aqo_dev, "Failed to register interrupt handler");
+	else
+		aqo_log(aqo_dev, "Registered interrupt handler");
+
+	aqo_log(aqo_dev, "Started Rx MSI host proxy");
 
 	return rc;
 }
 
 static int proxy_stop_host(struct aqo_device *aqo_dev)
 {
-	struct aqo_proxy_host_context *ctx = &aqo_dev->ch_rx.proxy.host_ctx;
+	struct aqo_proxy_host_context *host_ctx =
+		&aqo_dev->ch_rx.proxy.host_ctx;
 
-	free_irq(ctx->irq, ctx);
+	free_irq(host_ctx->irq, host_ctx);
+
+	aqo_log(aqo_dev, "Stopepd Rx MSI host proxy");
 
 	return 0;
 }
 
 static int proxy_deinit_host(struct aqo_device *aqo_dev)
 {
-	struct aqo_proxy_host_context *ctx = &aqo_dev->ch_rx.proxy.host_ctx;
+	struct aqo_proxy_host_context *host_ctx =
+		&aqo_dev->ch_rx.proxy.host_ctx;
 
-	iounmap(ctx->gsi_db);
+	iounmap(host_ctx->gsi_db);
+	host_ctx->gsi_db = 0;
+
+	dma_unmap_resource(AQO_DEV(aqo_dev),
+		host_ctx->msi_addr.daddr, host_ctx->msi_addr.size,
+		DMA_FROM_DEVICE, 0);
+	host_ctx->msi_addr.daddr = 0;
+
+	aqo_log(aqo_dev, "Deinitialized AQC Rx MSI host proxy");
 
 	return 0;
 }
@@ -180,6 +238,9 @@ int aqo_proxy_init(struct aqo_device *aqo_dev)
 	if (proxy_ops[agent].init)
 		return proxy_ops[agent].init(aqo_dev);
 
+	aqo_log_err(aqo_dev,
+		"Init operation not supported by proxy agent %u", agent);
+
 	return -ENODEV;
 }
 
@@ -189,6 +250,9 @@ int aqo_proxy_start(struct aqo_device *aqo_dev)
 
 	if (proxy_ops[agent].start)
 		return proxy_ops[agent].start(aqo_dev);
+
+	aqo_log_err(aqo_dev,
+		"Start operation not supported by proxy agent %u", agent);
 
 	return -ENODEV;
 }
@@ -200,6 +264,9 @@ int aqo_proxy_stop(struct aqo_device *aqo_dev)
 	if (proxy_ops[agent].stop)
 		return proxy_ops[agent].stop(aqo_dev);
 
+	aqo_log_err(aqo_dev,
+		"Stop operation not supported by proxy agent %u", agent);
+
 	return -ENODEV;
 }
 
@@ -209,6 +276,9 @@ int aqo_proxy_deinit(struct aqo_device *aqo_dev)
 
 	if (proxy_ops[agent].deinit)
 		return proxy_ops[agent].deinit(aqo_dev);
+
+	aqo_log_err(aqo_dev,
+		"Deinit operation not supported by proxy agent %u", agent);
 
 	return -ENODEV;
 }

@@ -10,10 +10,20 @@
  * GNU General Public License for more details.
  */
 
+#ifndef __AQO_I_H__
+#define __AQO_I_H__
+
 #include <linux/pci.h>
 #include <linux/ipa_eth.h>
 
 #include "aqo_regs.h"
+
+#define AQO_DRIVER_NAME "aqc-ipa"
+#define AQO_DRIVER_VERSION "0.1.0"
+
+#ifdef CONFIG_AQC_IPA_DEBUG
+#define DEBUG
+#endif
 
 #if defined(CONFIG_AQC_IPA_PROXY_UC)
   #define AQO_PROXY_DEFAULT_AGENT AQO_PROXY_UC
@@ -57,9 +67,10 @@ struct aqo_proxy_host_context
 	void __iomem *aqc_hp;
 	void __iomem *gsi_db;
 
-	dma_addr_t desc_base;
+	dma_addr_t desc_dbase;
 	void *desc_vbase;
-	u16 desc_count;
+	u32 max_head;
+	u32 head;
 
 	struct task_struct *thread;
 };
@@ -98,9 +109,7 @@ struct aqo_channel {
 struct aqo_device {
 	struct list_head device_list;
 
-	struct pci_dev *pci_dev;
 	struct ipa_eth_device *eth_dev;
-
 	struct ipa_eth_resource regs_base;
 
 	struct aqo_channel ch_rx;
@@ -113,9 +122,7 @@ struct aqo_device {
 #define AQO_ETHDEV(aqo_dev) ((aqo_dev)->eth_dev)
 #define AQO_NETDRV(aqo_dev) (AQO_ETHDEV(aqo_dev)->nd)
 #define AQO_NETOPS(aqo_dev) (AQO_NETDRV(aqo_dev)->ops)
-#define AQO_PCIDEV(aqo_dev) ((aqo_dev)->pci_dev)
-#define AQO_PFDEV(aqo_dev) ((aqo_dev)->pf_dev)
-#define AQO_DEV(aqo_dev) (&(aqo_dev)->pci_dev->dev)
+#define AQO_DEV(aqo_dev) (AQO_ETHDEV(aqo_dev)->dev)
 
 /* uC */
 
@@ -162,3 +169,86 @@ int aqo_proxy_init(struct aqo_device *aqo_dev);
 int aqo_proxy_start(struct aqo_device *aqo_dev);
 int aqo_proxy_stop(struct aqo_device *aqo_dev);
 int aqo_proxy_deinit(struct aqo_device *aqo_dev);
+
+#define AQO_LOG_PREFIX "[aqo] "
+
+#define aqo_log(aqo_dev, fmt, args...) \
+	do { \
+		struct aqo_device *__aqo_dev = aqo_dev; \
+		struct ipa_eth_device *eth_dev = \
+					__aqo_dev ? __aqo_dev->eth_dev : NULL; \
+		struct device *dev = eth_dev ? eth_dev->dev : NULL; \
+		struct net_device *net_dev = \
+					eth_dev ? eth_dev->net_dev : NULL; \
+		const char *netdev_name = \
+				net_dev ? net_dev->name : "<unpaired>"; \
+		\
+		dev_dbg(dev, AQO_LOG_PREFIX "(%s) " fmt "\n", \
+			netdev_name, ## args); \
+		ipa_eth_ipc_log(AQO_LOG_PREFIX "(%s) " fmt, \
+				netdev_name, ##args); \
+	} while (0)
+
+#define aqo_log_err(aqo_dev, fmt, args...) \
+	do { \
+		struct aqo_device *__aqo_dev = aqo_dev; \
+		struct ipa_eth_device *eth_dev = \
+					__aqo_dev ? __aqo_dev->eth_dev : NULL; \
+		struct device *dev = eth_dev ? eth_dev->dev : NULL; \
+		struct net_device *net_dev = \
+					eth_dev ? eth_dev->net_dev : NULL; \
+		const char *netdev_name = \
+				net_dev ? net_dev->name : "<unpaired>"; \
+		\
+		dev_err(dev, AQO_LOG_PREFIX "(%s) " "ERROR: " fmt "\n", \
+			netdev_name, ## args); \
+		ipa_eth_ipc_log(AQO_LOG_PREFIX "(%s) " "ERROR: " fmt, \
+				netdev_name, ##args); \
+	} while (0)
+
+#ifdef DEBUG
+#define aqo_log_bug(aqo_dev, fmt, args...) \
+	do { \
+		aqo_log_err(aqo_dev, "BUG: " fmt, ##args); \
+		BUG(); \
+	} while (0)
+
+#define aqo_log_dbg(aqo_dev, fmt, args...) \
+	do { \
+		struct aqo_device *__aqo_dev = aqo_dev; \
+		struct ipa_eth_device *eth_dev = \
+					__aqo_dev ? __aqo_dev->eth_dev : NULL; \
+		struct device *dev = eth_dev ? eth_dev->dev : NULL; \
+		struct net_device *net_dev = \
+					eth_dev ? eth_dev->net_dev : NULL; \
+		const char *netdev_name = \
+				net_dev ? net_dev->name : "<unpaired>"; \
+		\
+		dev_dbg(dev, AQO_LOG_PREFIX "(%s) " fmt "\n", \
+			netdev_name, ## args); \
+		ipa_eth_ipc_dbg(AQO_LOG_PREFIX "(%s) " "DEBUG: " fmt, \
+				netdev_name, ##args); \
+	} while (0)
+#else
+#define aqo_log_bug(aqo_dev, fmt, args...) \
+	do { \
+		aqo_log_err(aqo_dev, "BUG: " fmt, ##args); \
+		dump_stack(); \
+	} while (0)
+
+#define aqo_log_dbg(aqo_dev, fmt, args...) \
+	do { \
+		struct aqo_device *__aqo_dev = aqo_dev; \
+		struct ipa_eth_device *eth_dev = \
+					__aqo_dev ? __aqo_dev->eth_dev : NULL; \
+		struct net_device *net_dev = \
+					eth_dev ? eth_dev->net_dev : NULL; \
+		const char *netdev_name = \
+				net_dev ? net_dev->name : "<unpaired>"; \
+		\
+		ipa_eth_ipc_dbg(AQO_LOG_PREFIX "(%s) " "DEBUG: " fmt, \
+				netdev_name, ##args); \
+	} while (0)
+#endif /* DEBUG */
+
+#endif /* __AQO_I_H__ */
