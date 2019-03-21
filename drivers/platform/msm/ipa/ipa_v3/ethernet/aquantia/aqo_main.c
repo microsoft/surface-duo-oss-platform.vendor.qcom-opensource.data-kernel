@@ -34,6 +34,10 @@ static const u32 PCI_VENDOR_ID_AQUANTIA = 0x1d6a;
 
 static const struct pci_device_id aquantia_pci_ids[] = {
 	{ PCI_VDEVICE(AQUANTIA, 0xd107), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x07b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x87b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x00b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x80b1), 0 },
 };
 
 static const struct of_device_id aquantia_of_matches[] = {
