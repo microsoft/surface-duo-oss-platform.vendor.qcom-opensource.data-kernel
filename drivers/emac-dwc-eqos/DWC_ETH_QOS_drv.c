@@ -1983,7 +1983,7 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct desc_if_struct *desc_if = &pdata->desc_if;
-	int ret = 0, qinx = 0;
+	int qinx = 0;
 
 	DBGPR("-->DWC_ETH_QOS_close\n");
 
@@ -5218,7 +5218,6 @@ void stop_pps(int ch)
 int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
 {
 	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
-	struct hw_if_struct *hw_if = &pdata->hw_if;
 	unsigned int val;
 	int interval, width;
 	int interval_ns; /*interval in nano seconds*/
@@ -6302,7 +6301,7 @@ u16	DWC_ETH_QOS_select_queue(struct net_device *dev,
 	select_queue_fallback_t fallback)
 {
 	u16 txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
-	UINT qtag_type, eth_type, priority;
+	UINT eth_type, priority;
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 
 	/* Retrieve ETH type */
@@ -6507,7 +6506,6 @@ INT DWC_ETH_QOS_powerdown(struct net_device *dev, UINT wakeup_type,
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
-	ULONG flags;
 
 	DBGPR(KERN_ALERT "-->DWC_ETH_QOS_powerdown\n");
 
@@ -7978,7 +7976,7 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_NOPAY_OCTETS_RGOFFADDR);
 	mmc->mmc_rx_ipv4_frag_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_FRAG_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_ipv4_udp_csum_disable_octets +=
+	mmc->mmc_rx_ipv4_udp_cs_dis_oct +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_UDSBL_OCTETS_RGOFFADDR);
 
 	/* IPV6 */

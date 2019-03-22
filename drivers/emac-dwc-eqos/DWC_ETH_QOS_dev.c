@@ -4085,7 +4085,7 @@ static INT DWC_ETH_QOS_yexit(void)
 	vy_count = 0;
 	while (1) {
 		if (vy_count > RETRYCOUNT) {
-			EMACERR("Unable to reset MAC 0x%x\n", VARDMA_BMR);
+			EMACERR("Unable to reset MAC 0x%lx\n", VARDMA_BMR);
 			return -Y_FAILURE;
 		}
 

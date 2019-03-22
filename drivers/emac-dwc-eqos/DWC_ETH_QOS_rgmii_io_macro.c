@@ -157,8 +157,6 @@ ULONG rgmii_io_macro_dll_por_values
 		[RGMII_IO_MACRO_CONFIG_2_POR_ARR_INDEX] = {
 		RGMII_IO_MACRO_CONFIG_2_RGOFFADDR_OFFSET, 0x00002060 },
 	},
-	{
-	},
 };
 
 /* SDCDC DLL initialization */

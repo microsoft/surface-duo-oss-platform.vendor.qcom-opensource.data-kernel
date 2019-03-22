@@ -559,7 +559,7 @@ static INT allocate_buffer_and_desc(struct DWC_ETH_QOS_prv_data *pdata)
 			ret = -ENOMEM;
 			goto err_out_tx_desc;
 		}
-		EMACDBG("Tx Queue(%d) desc base dma address: %p\n",
+		EMACDBG("Tx Queue(%d) desc base dma address: %llx\n",
 			qinx, GET_TX_DESC_DMA_ADDR(qinx, 0));
 	}
 
@@ -585,7 +585,7 @@ static INT allocate_buffer_and_desc(struct DWC_ETH_QOS_prv_data *pdata)
 			ret = -ENOMEM;
 			goto rx_alloc_failure;
 		}
-		EMACDBG("Rx Queue(%d) desc base dma address: %p\n",
+		EMACDBG("Rx Queue(%d) desc base dma address: %llx\n",
 			qinx, GET_RX_DESC_DMA_ADDR(qinx, 0));
 	}
 

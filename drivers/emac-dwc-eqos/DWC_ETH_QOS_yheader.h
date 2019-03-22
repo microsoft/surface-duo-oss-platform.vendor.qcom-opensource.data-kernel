@@ -1391,7 +1391,7 @@ struct DWC_ETH_QOS_mmc_counters {
 	unsigned long mmc_rx_ipv4_hderr_octets;
 	unsigned long mmc_rx_ipv4_nopay_octets;
 	unsigned long mmc_rx_ipv4_frag_octets;
-	unsigned long mmc_rx_ipv4_udp_csum_disable_octets;
+	unsigned long mmc_rx_ipv4_udp_cs_dis_oct;
 
 	/* IPV6 */
 	unsigned long mmc_rx_ipv6_gd;
