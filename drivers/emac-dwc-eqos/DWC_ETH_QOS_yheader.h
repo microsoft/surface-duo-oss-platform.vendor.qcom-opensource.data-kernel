@@ -433,6 +433,7 @@ extern void *ipc_emac_log_ctxt;
 #define DWC_ETH_QOS_SYSTIMEPERIOD	4 /* System time period is 4ns */
 
 #define DWC_ETH_QOS_DEFAULT_PTP_CLOCK 50000000
+#define DWC_ETH_QOS_DEFAULT_LPASS_CLOCK 250000000
 
 #define DWC_ETH_QOS_TX_QUEUE_CNT (pdata->tx_queue_cnt)
 #define DWC_ETH_QOS_RX_QUEUE_CNT (pdata->rx_queue_cnt)
@@ -1612,6 +1613,7 @@ struct DWC_ETH_QOS_res_data {
 	bool is_bit_mask;
 	bool early_eth_en;
 	bool phyad_change;
+	bool pps_lpass_conn_en;
 };
 
 struct DWC_ETH_QOS_prv_ipa_data {
