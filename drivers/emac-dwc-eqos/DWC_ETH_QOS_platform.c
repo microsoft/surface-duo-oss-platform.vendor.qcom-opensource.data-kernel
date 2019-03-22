@@ -574,6 +574,7 @@ static void DWC_ETH_QOS_configure_gpio_pins(struct platform_device *pdev)
 		EMACDBG("get pinctrl succeed\n");
 
 		if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_2_0 ||
+			dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2 ||
 			dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_3_1) {
 			/* PPS0 pin */
 			emac_pps_0 = pinctrl_lookup_state(pinctrl, EMAC_PIN_PPS0);
@@ -882,6 +883,10 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 			dwc_eth_qos_res_data.is_bit_mask = 0;
 		}
 	}
+
+	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_3_1 ||
+		dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2)
+		dwc_eth_qos_res_data.pps_lpass_conn_en = true;
 
 	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_3_1) {
 		resource = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
