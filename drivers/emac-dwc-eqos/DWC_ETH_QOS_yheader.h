@@ -125,7 +125,9 @@
 #include <linux/mailbox/qmp.h>
 #include <linux/mailbox_controller.h>
 #include "DWC_ETH_QOS_ipc.h"
-
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+#include <soc/qcom/boot_stats.h>
+#endif
 /* QOS Version Control Macros */
 /* #define DWC_ETH_QOS_VER_4_0 */
 /* Default Configuration is for QOS version 4.1 and above */
@@ -1860,6 +1862,7 @@ struct DWC_ETH_QOS_prv_data {
 	unsigned int ptpclk_freq;
 
 	bool jumbo_frame_supported;
+	bool print_kpi;
 };
 
 typedef enum {
