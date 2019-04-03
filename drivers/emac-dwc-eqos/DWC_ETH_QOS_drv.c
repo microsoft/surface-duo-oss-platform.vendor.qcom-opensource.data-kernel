@@ -2993,9 +2993,10 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 			pdata->xstats.q_tx_pkt_n[qinx]++;
 			pdata->xstats.tx_pkt_n++;
 			dev->stats.tx_packets++;
-#ifdef DWC_ETH_QOS_BUILTIN
-			if (dev->stats.tx_packets == 1)
-				EMACINFO("Transmitted First Rx packet\n");
+#if defined(DWC_ETH_QOS_BUILTIN) && defined(CONFIG_MSM_BOOT_TIME_MARKER)
+			if ( dev->stats.tx_packets == 1) {
+				place_marker("M - Ethernet first packet transmitted");
+			}
 #endif
 		}
 #else
@@ -3929,12 +3930,13 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 				/* update the statistics */
 				dev->stats.rx_packets++;
 				dev->stats.rx_bytes += skb->len;
-#ifdef DWC_ETH_QOS_BUILTIN
-				if (dev->stats.rx_packets == 1)
-					EMACINFO("Received First Rx packet\n");
-#endif
 				DWC_ETH_QOS_receive_skb(pdata, dev, skb, qinx);
 				received++;
+#if defined(DWC_ETH_QOS_BUILTIN) && defined(CONFIG_MSM_BOOT_TIME_MARKER)
+				if ( dev->stats.rx_packets == 1) {
+					place_marker("M - Ethernet first packet received");
+				}
+#endif
 			} else {
 #ifdef DWC_ETH_QOS_ENABLE_RX_DESC_DUMP
 				dump_rx_desc(qinx, RX_NORMAL_DESC, desc_data->cur_rx);

@@ -131,6 +131,9 @@
 #include <linux/inet.h>
 #include <asm/uaccess.h>
 
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+#include <soc/qcom/boot_stats.h>
+#endif
 /* QOS Version Control Macros */
 /* #define DWC_ETH_QOS_VER_4_0 */
 /* Default Configuration is for QOS version 4.1 and above */
@@ -1905,6 +1908,7 @@ struct DWC_ETH_QOS_prv_data {
 
 	bool jumbo_frame_supported;
 	struct delayed_work ipv6_addr_assign_wq;
+	bool print_kpi;
 };
 
 struct ip_params {
