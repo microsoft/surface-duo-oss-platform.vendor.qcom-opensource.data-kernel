@@ -352,6 +352,7 @@ extern void *ipc_emac_log_ctxt;
 #define LINK_UP 1
 #define LINK_DOWN 0
 #define ENABLE_PHY_INTERRUPTS 0xcc00
+#define MICREL_LINK_UP_INTR_STATUS		BIT(0)
 
 /* Default MTL queue operation mode values */
 #define DWC_ETH_QOS_Q_DISABLED	0x0
@@ -663,6 +664,7 @@ extern void *ipc_emac_log_ctxt;
 #define IPA_DMA_TX_CH 0
 #define IPA_DMA_RX_CH 0
 
+#define IPA_RX_TO_DMA_CH_MAP_NUM	BIT(0);
 
 #define EMAC_GDSC_EMAC_NAME "gdsc_emac"
 #define EMAC_VREG_RGMII_NAME "vreg_rgmii"
