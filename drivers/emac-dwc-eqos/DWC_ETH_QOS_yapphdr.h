@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017,2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -434,6 +434,7 @@ struct ETH_PPS_Config
 	unsigned int ppsout_freq;
 	unsigned int ppsout_ch;
 	unsigned int ppsout_duty;
+	unsigned int ppsout_start;
 };
 #endif
 

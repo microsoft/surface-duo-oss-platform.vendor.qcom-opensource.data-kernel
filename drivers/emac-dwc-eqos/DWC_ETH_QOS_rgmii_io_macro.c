@@ -464,7 +464,8 @@ int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *pdata)
 				RGMII_CONFIG_2_RX_PROG_SWAP_UDFWR(0x1);
 				RGMII_LOOPBACK_EN_UDFWR(loopback_mode_en);
 				if (pdata->emac_hw_version_type == EMAC_HW_v2_1_0 ||
-					pdata->emac_hw_version_type == EMAC_HW_v2_3_1)
+					pdata->emac_hw_version_type == EMAC_HW_v2_3_1 ||
+					pdata->emac_hw_version_type == EMAC_HW_v2_1_2)
 					RGMII_CONFIG_2_TX_CLK_PHASE_SHIFT_EN_UDFWR(0x1);
 			} else {
 				/* Enable DDR mode*/
@@ -491,7 +492,8 @@ int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *pdata)
 				RGMII_CONFIG_2_RX_PROG_SWAP_UDFWR(0x1);
 
 				/* Program PRG_RCLK_DLY to 52 ns for a required delay of 2 ns on HANA AU */
-				if (pdata->emac_hw_version_type == EMAC_HW_v2_1_0)
+				if (pdata->emac_hw_version_type == EMAC_HW_v2_1_0 ||
+					pdata->emac_hw_version_type == EMAC_HW_v2_1_2)
 					SDCC_HC_PRG_RCLK_DLY_UDFWR(52);
 				else if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1)
 					SDCC_HC_PRG_RCLK_DLY_UDFWR(104);
@@ -527,7 +529,8 @@ int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *pdata)
 				RGMII_CONFIG_2_RX_PROG_SWAP_UDFWR(0x0);
 				RGMII_LOOPBACK_EN_UDFWR(loopback_mode_en);
 				if (pdata->emac_hw_version_type == EMAC_HW_v2_1_0 ||
-					pdata->emac_hw_version_type == EMAC_HW_v2_3_1)
+					pdata->emac_hw_version_type == EMAC_HW_v2_3_1 ||
+					pdata->emac_hw_version_type == EMAC_HW_v2_1_2)
 					RGMII_CONFIG_2_RX_PROG_SWAP_UDFWR(0x1);
 			} else{
 				RGMII_DDR_MODE_UDFWR(0x1);
@@ -586,7 +589,8 @@ int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *pdata)
 				RGMII_CONFIG_2_RX_PROG_SWAP_UDFWR(0x0);
 				RGMII_LOOPBACK_EN_UDFWR(loopback_mode_en);
 				if (pdata->emac_hw_version_type == EMAC_HW_v2_1_0 ||
-					pdata->emac_hw_version_type == EMAC_HW_v2_3_1)
+					pdata->emac_hw_version_type == EMAC_HW_v2_3_1 ||
+					pdata->emac_hw_version_type == EMAC_HW_v2_1_2)
 					RGMII_CONFIG_2_RX_PROG_SWAP_UDFWR(0x1);
 			} else{
 				RGMII_DDR_MODE_UDFWR(0x1);
