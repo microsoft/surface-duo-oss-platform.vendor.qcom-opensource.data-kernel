@@ -575,10 +575,18 @@ static int aqo_start_rx(struct ipa_eth_device *eth_dev)
 		goto err_netdev_start;
 	}
 
+	rc = aqo_netdev_rxflow_set(aqo_dev);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to set Rx flow to IPA");
+		goto err_rxflow;
+	}
+
 	aqo_log(aqo_dev, "Started Rx offload");
 
 	return 0;
 
+err_rxflow:
+	aqo_netdev_stop_rx(aqo_dev);
 err_netdev_start:
 	aqo_proxy_stop(aqo_dev);
 err_proxy_start:
@@ -593,6 +601,7 @@ static int aqo_stop_rx(struct ipa_eth_device *eth_dev)
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
 	// TODO: check return status
+	aqo_netdev_rxflow_reset(aqo_dev);
 	aqo_netdev_start_rx(aqo_dev);
 	aqo_proxy_stop(aqo_dev);
 	aqo_gsi_stop_rx(aqo_dev);
