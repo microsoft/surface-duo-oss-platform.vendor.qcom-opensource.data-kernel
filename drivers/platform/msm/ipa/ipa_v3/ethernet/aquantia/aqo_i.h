@@ -165,6 +165,9 @@ int aqo_netdev_deinit_tx_event(struct aqo_device *aqo_dev);
 int aqo_netdev_start_tx(struct aqo_device *aqo_dev);
 int aqo_netdev_stop_tx(struct aqo_device *aqo_dev);
 
+int aqo_netdev_rxflow_set(struct aqo_device *aqo_dev);
+int aqo_netdev_rxflow_reset(struct aqo_device *aqo_dev);
+
 int aqo_proxy_init(struct aqo_device *aqo_dev);
 int aqo_proxy_start(struct aqo_device *aqo_dev);
 int aqo_proxy_stop(struct aqo_device *aqo_dev);
