@@ -19,7 +19,8 @@
 int aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 {
 	int rc = 0;
-
+	u64 head_ptr;
+	enum aqo_proxy_mode proxy_mode = aqo_dev->ch_rx.proxy.mode;
 	struct ipa_eth_channel *ch = AQO_ETHDEV(aqo_dev)->ch_rx;
 
 	struct gsi_evt_ring_props gsi_evt_ring_props;
@@ -45,6 +46,9 @@ int aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 			AQC_RX_TAIL_PTR(aqo_dev->regs_base.paddr, ch->queue);
 		gsi_evt_ring_props.msi_addr =
 			AQO_PCI_DIRECT_SET(gsi_evt_ring_props.msi_addr);
+
+		head_ptr = AQC_RX_HEAD_PTR(aqo_dev->regs_base.paddr, ch->queue);
+		head_ptr = AQO_PCI_DIRECT_SET(head_ptr);
 	} else {
 		aqo_log_bug(aqo_dev, "Only PCI direct access is supported");
 		return -EFAULT;
@@ -80,7 +84,10 @@ int aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 	gsi_channel_props.ring_base_addr = ch->desc_mem.daddr;
 	gsi_channel_props.ring_base_vaddr = NULL;
 
-	gsi_channel_props.use_db_eng = GSI_CHAN_DIRECT_MODE;
+	if (proxy_mode == AQO_PROXY_MODE_HEADPTR)
+		gsi_channel_props.use_db_eng = GSI_CHAN_DIRECT_MODE;
+	else
+		gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
 
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
 	gsi_channel_props.low_weight = 1;
@@ -113,6 +120,15 @@ int aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 	ch_scratch.data.word2 = upper_32_bits(ch->buff_mem.daddr);
 	ch_scratch.data.word2 &= (BIT(8) - 1);
 	ch_scratch.data.word2 |= (ilog2(ch->buff_size) << 16);
+
+	if (gsi_channel_props.use_db_eng == GSI_CHAN_DB_MODE) {
+		ch_scratch.data.word3 = lower_32_bits(head_ptr);
+		ch_scratch.data.word4 = upper_32_bits(head_ptr) & (BIT(9) - 1);
+
+		if (upper_32_bits(head_ptr) & ~(BIT(9) - 1))
+			aqo_log_bug(aqo_dev,
+				"Excess Head Pointer address bits are ignored");
+	}
 
 	rc = ipa_eth_gsi_alloc(ch, &gsi_evt_ring_props, NULL, NULL,
 			&gsi_channel_props, &ch_scratch,
@@ -300,7 +316,7 @@ int aqo_gsi_start_tx(struct aqo_device *aqo_dev)
 {
 	int rc;
 	struct ipa_eth_channel *ch = AQO_ETHDEV(aqo_dev)->ch_tx;
-	u32 chdb_val = AQO_ETHDEV(aqo_dev)->ch_tx->desc_mem.size / 16;
+	u32 chdb_val = AQO_ETHDEV(aqo_dev)->ch_tx->desc_count - 1;
 
 	rc = ipa_eth_gsi_start(ch);
 	if (rc) {
