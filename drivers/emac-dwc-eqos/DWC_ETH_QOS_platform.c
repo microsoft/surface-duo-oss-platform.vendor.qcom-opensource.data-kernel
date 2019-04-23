@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -958,11 +958,12 @@ int DWC_ETH_QOS_enable_ptp_clk(struct device *dev)
 	int ret;
 	const char* ptp_clock_name;
 
-	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0 ||
-		dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2)
-		ptp_clock_name = "emac_ptp_clk";
-	else
-		ptp_clock_name = "eth_ptp_clk";
+        ret = of_property_read_string_index(dev->of_node, "clock-names", DWC_ETH_QOS_PTP_CLK_INDEX, &ptp_clock_name);
+
+        if (ret){
+           EMACERR("unable get ptp clk name\n");
+           return ret;
+        }
 
 	/* valid value of dwc_eth_qos_res_data.ptp_clk indicates that clock is enabled */
 	if (!dwc_eth_qos_res_data.ptp_clk) {
@@ -1101,24 +1102,31 @@ static int DWC_ETH_QOS_get_clks(struct device *dev)
 	const char* axi_clock_name;
 	const char* ahb_clock_name;
 	const char* rgmii_clock_name;
-
 	dwc_eth_qos_res_data.axi_clk = NULL;
 	dwc_eth_qos_res_data.ahb_clk = NULL;
 	dwc_eth_qos_res_data.rgmii_clk = NULL;
 	dwc_eth_qos_res_data.ptp_clk = NULL;
 
-	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0 ||
-		(dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2)) {
-		/* EMAC core version 2.1.0 clocks */
-		axi_clock_name = "emac_axi_clk";
-		ahb_clock_name = "emac_slv_ahb_clk";
-		rgmii_clock_name = "emac_rgmii_clk";
-	} else {
-		/* Default values are for EMAC core version 2.0.0 clocks */
-		axi_clock_name = "eth_axi_clk";
-		ahb_clock_name = "eth_slave_ahb_clk";
-		rgmii_clock_name = "eth_rgmii_clk";
-	}
+        ret = of_property_read_string_index(dev->of_node, "clock-names", DWC_ETH_QOS_AXI_CLK_INDEX, &axi_clock_name);
+
+        if (ret){
+           EMACERR("unable get axi clk name\n");
+           return ret;
+        }
+
+        ret = of_property_read_string_index(dev->of_node, "clock-names", DWC_ETH_QOS_SLAVE_AHB_CLK_INDEX, &ahb_clock_name);
+
+        if (ret){
+           EMACERR("unable get ahb clk name\n");
+           return ret;
+        }
+
+        ret = of_property_read_string_index(dev->of_node, "clock-names", DWC_ETH_QOS_RGMII_CLK_INDEX, &rgmii_clock_name);
+
+        if (ret){
+           EMACERR("unable get rgmii clk name\n");
+           return ret;
+        }
 
 	dwc_eth_qos_res_data.axi_clk = devm_clk_get(dev, axi_clock_name);
 	if (IS_ERR(dwc_eth_qos_res_data.axi_clk)) {
