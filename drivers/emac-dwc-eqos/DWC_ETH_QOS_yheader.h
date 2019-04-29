@@ -377,6 +377,9 @@ extern void *ipc_emac_log_ctxt;
 #define VLAN_HLEN 0
 #endif
 
+/* Allocate extra 16 bytes as a SW workaround for RX buffer corruption issue.
+ * If RX buffer address is not aligned with 64 bit boundry, MAC writes extra random data into memory.
+ */
 #define DWC_ETH_QOS_ETH_FRAME_PADDING_ISSUE (2*8)
 #define DWC_ETH_QOS_ETH_FRAME_LEN (ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN)
 
