@@ -729,6 +729,11 @@ extern void *ipc_emac_log_ctxt;
 /* EMAC HW version value from register */
 #define EMAC_HW_v2_3_2_RG 0x20030002
 
+#define DWC_ETH_QOS_AXI_CLK_INDEX 0
+#define DWC_ETH_QOS_PTP_CLK_INDEX 1
+#define DWC_ETH_QOS_RGMII_CLK_INDEX 2
+#define DWC_ETH_QOS_SLAVE_AHB_CLK_INDEX 3
+#define DWC_ETH_QOS_CLKS_MAX 4
 
 /* C data types typedefs */
 typedef unsigned short BOOL;
