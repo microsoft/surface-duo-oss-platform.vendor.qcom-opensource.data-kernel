@@ -351,6 +351,7 @@ extern void *ipc_emac_log_ctxt;
 #define LINK_UP 1
 #define LINK_DOWN 0
 #define ENABLE_PHY_INTERRUPTS 0xcc00
+#define MICREL_LINK_UP_INTR_STATUS		BIT(0)
 
 /* Default MTL queue operation mode values */
 #define DWC_ETH_QOS_Q_DISABLED	0x0
@@ -382,10 +383,10 @@ extern void *ipc_emac_log_ctxt;
 #define VLAN_HLEN 0
 #endif
 
-#define PADDING_ISSUE (2*8)
-#define DWC_ETH_QOS_ETH_FRAME_LEN (ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN + PADDING_ISSUE)
+#define DWC_ETH_QOS_ETH_FRAME_PADDING_ISSUE (2*8)
+#define DWC_ETH_QOS_ETH_FRAME_LEN (ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN)
 
-#define DWC_ETH_QOS_ETH_FRAME_LEN_IPA	((1<<11) + PADDING_ISSUE) /*IPA can support 2KB max pkt length*/
+#define DWC_ETH_QOS_ETH_FRAME_LEN_IPA	((1<<11)) /*IPA can support 2KB max pkt length*/
 
 #define FIFO_SIZE_B(x) (x)
 #define FIFO_SIZE_KB(x) (x * 1024)
@@ -394,7 +395,8 @@ extern void *ipc_emac_log_ctxt;
 #define DWC_ETH_QOS_MAX_DATA_PER_TX_BUF BIT(12)	/* for testing purpose: 4 KB Maximum data per buffer pointer(in Bytes) */
 #define DWC_ETH_QOS_MAX_DATA_PER_TXD (DWC_ETH_QOS_MAX_DATA_PER_TX_BUF * 2)	/* Maxmimum data per descriptor(in Bytes) */
 
-#define DWC_ETH_QOS_MAX_SUPPORTED_MTU 16380
+#define DWC_ETH_QOS_MAX_MTU_SIZE (1 << 11)     /*2KB to support gaint packets*/
+#define DWC_ETH_QOS_MAX_SUPPORTED_MTU DWC_ETH_QOS_MAX_MTU_SIZE
 #define DWC_ETH_QOS_MAX_GPSL 9000 /* Default maximum Gaint Packet Size Limit */
 #define DWC_ETH_QOS_MIN_SUPPORTED_MTU (ETH_ZLEN + ETH_FCS_LEN + VLAN_HLEN)
 
@@ -661,6 +663,7 @@ extern void *ipc_emac_log_ctxt;
 #define IPA_DMA_TX_CH 0
 #define IPA_DMA_RX_CH 0
 
+#define IPA_RX_TO_DMA_CH_MAP_NUM	BIT(0);
 
 #define EMAC_GDSC_EMAC_NAME "gdsc_emac"
 #define EMAC_VREG_RGMII_NAME "vreg_rgmii"
@@ -1890,6 +1893,7 @@ struct DWC_ETH_QOS_prv_data {
 	struct cdev* avb_class_b_cdev;
 	struct class* avb_class_b_class;
 
+	bool jumbo_frame_supported;
 };
 
 struct ip_params {

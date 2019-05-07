@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -794,11 +794,17 @@ void DWC_ETH_QOS_handle_phy_interrupt(struct DWC_ETH_QOS_prv_data *pdata)
 		DWC_ETH_QOS_mdio_read_direct(
 			pdata, pdata->phyaddr, DWC_ETH_QOS_MICREL_PHY_INTCS, &micrel_intr_status);
 		EMACDBG(
-			"MICREL PHY Intr EN Reg (%#x) = %#x\n", DWC_ETH_QOS_MICREL_PHY_INTCS, micrel_intr_status);
+			"MICREL PHY Intr EN Reg (%#x) = %#x\n",
+			DWC_ETH_QOS_MICREL_PHY_INTCS, micrel_intr_status);
+
+		/* Call ack interrupt to clear the WOL interrupt status fields */
+		if (pdata->phydev->drv->ack_interrupt)
+			pdata->phydev->drv->ack_interrupt(pdata->phydev);
 
 		/* Interrupt received for link state change */
 		if (phy_intr_status & LINK_STATE_MASK) {
-			pdata->hw_if.stop_mac_tx_rx();
+			if (micrel_intr_status & MICREL_LINK_UP_INTR_STATUS)
+				pdata->hw_if.stop_mac_tx_rx();
 			EMACDBG("Interrupt received for link UP state\n");
 			phy_mac_interrupt(pdata->phydev, LINK_UP);
 		} else if (!(phy_intr_status & LINK_STATE_MASK)) {
@@ -1708,16 +1714,19 @@ static int DWC_ETH_QOS_alloc_rx_buf(struct DWC_ETH_QOS_prv_data *pdata,
 
 static void DWC_ETH_QOS_configure_rx_fun_ptr(struct DWC_ETH_QOS_prv_data *pdata)
 {
+	int  max_frame = 0;
 	DBGPR("-->DWC_ETH_QOS_configure_rx_fun_ptr\n");
 
 	if (pdata->rx_split_hdr) {
 		pdata->clean_rx = DWC_ETH_QOS_clean_split_hdr_rx_irq;
 		pdata->alloc_rx_buf = DWC_ETH_QOS_alloc_split_hdr_rx_buf;
-	} else if (pdata->dev->mtu > DWC_ETH_QOS_ETH_FRAME_LEN) {
-		pdata->clean_rx = DWC_ETH_QOS_clean_jumbo_rx_irq;
-		pdata->alloc_rx_buf = DWC_ETH_QOS_alloc_jumbo_rx_buf;
-	} else {
-		pdata->rx_buffer_len = DWC_ETH_QOS_ETH_FRAME_LEN;
+	} else if (pdata->jumbo_frame_supported && (pdata->dev->mtu > DWC_ETH_QOS_ETH_FRAME_LEN)) {
+               pdata->clean_rx = DWC_ETH_QOS_clean_jumbo_rx_irq;
+               pdata->alloc_rx_buf = DWC_ETH_QOS_alloc_jumbo_rx_buf;
+        } else {
+		max_frame = pdata->dev->mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
+		pdata->rx_buffer_len = (max_frame > DWC_ETH_QOS_ETH_FRAME_LEN ?
+		   ALIGN(max_frame, 8) : DWC_ETH_QOS_ETH_FRAME_LEN) + DWC_ETH_QOS_ETH_FRAME_PADDING_ISSUE;
 		pdata->clean_rx = DWC_ETH_QOS_clean_rx_irq;
 		pdata->alloc_rx_buf = DWC_ETH_QOS_alloc_rx_buf;
 	}
@@ -6334,6 +6343,7 @@ static INT DWC_ETH_QOS_change_mtu(struct net_device *dev, INT new_mtu)
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	int max_frame = (new_mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN);
+	int old_mtu = dev->mtu;
 
 	DBGPR("-->DWC_ETH_QOS_change_mtu: new_mtu:%d\n", new_mtu);
 
@@ -6347,40 +6357,25 @@ static INT DWC_ETH_QOS_change_mtu(struct net_device *dev, INT new_mtu)
 		return 0;
 	}
 
-	/* Supported frame sizes */
-	if ((new_mtu < DWC_ETH_QOS_MIN_SUPPORTED_MTU) ||
+	/*for MIN MTU, it may be possible that HW can add padded bytes to
+	make it 60B. However, currently MIN MTU is not being supporting
+	via this command
+        */
+	if ((max_frame < DWC_ETH_QOS_MIN_SUPPORTED_MTU) ||
 	    (max_frame > DWC_ETH_QOS_MAX_SUPPORTED_MTU)) {
-		dev_alert(&pdata->pdev->dev,
-			  "%s: invalid MTU, min %d and max %d MTU are supported\n",
-		       dev->name, DWC_ETH_QOS_MIN_SUPPORTED_MTU,
-		       DWC_ETH_QOS_MAX_SUPPORTED_MTU);
+		EMACERR("invalid MTU setting %s: %s: %d: %d\n",__FILE__,__FUNCTION__,__LINE__,max_frame);
 		return -EINVAL;
 	}
-
-	dev_alert(&pdata->pdev->dev, "changing MTU from %d to %d\n",
-		  dev->mtu, new_mtu);
-
-	DWC_ETH_QOS_stop_dev(pdata);
-
-	if (max_frame <= 2048)
-		pdata->rx_buffer_len = 2048;
-	else
-		pdata->rx_buffer_len = PAGE_SIZE;
-	/* in case of JUMBO frame,
-	 * max buffer allocated is
-	 * PAGE_SIZE
-	 */
-
-	if ((max_frame == ETH_FRAME_LEN + ETH_FCS_LEN) ||
-	    (max_frame == ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN))
-		pdata->rx_buffer_len =
-		    DWC_ETH_QOS_ETH_FRAME_LEN;
-
-	dev->mtu = new_mtu;
-
-	DWC_ETH_QOS_start_dev(pdata);
-
-	DBGPR("<--DWC_ETH_QOS_change_mtu\n");
+	/*set MTU */
+	if (old_mtu != new_mtu && netif_running(dev)) {
+		DWC_ETH_QOS_close(dev);
+		EMACINFO("changing MTU from %d to %d\n", dev->mtu, new_mtu);
+		pdata->dev->mtu = new_mtu;
+		pdata->rx_buffer_len = (max_frame > DWC_ETH_QOS_ETH_FRAME_LEN ?
+				   ALIGN(max_frame, 8) : DWC_ETH_QOS_ETH_FRAME_LEN) + DWC_ETH_QOS_ETH_FRAME_PADDING_ISSUE;
+		netdev_update_features(dev);
+		DWC_ETH_QOS_open(dev);
+	}
 
 	return 0;
 }

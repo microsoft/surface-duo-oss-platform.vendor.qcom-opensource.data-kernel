@@ -173,18 +173,48 @@ static int aqo_parse_rx_proxies(struct device_node *np,
 		struct aqo_device *aqo_dev)
 {
 	int i;
-	int rc = 0;
+	int rc;
+	const char *key;
+	const char *str;
 	struct device_node *pnp;
 
+	rc = 0;
 	for (i = 0; (pnp = of_parse_phandle(np, "qcom,rx-proxy", i)); i++) {
-		rc = aqo_parse_rx_proxy(pnp, aqo_dev);
-		if (rc) {
+		int r = aqo_parse_rx_proxy(pnp, aqo_dev);
+
+		if (r) {
 			aqo_log_err(aqo_dev, "Failed to parse proxy %d", i);
-			break;
+			rc |= r;
 		}
 	}
+	if (rc)
+		return rc;
 
-	return rc;
+	key = "qcom,rx-proxy-mode";
+	rc = of_property_read_string(np, key, &str);
+	if (rc) {
+		str = "counter";
+		aqo_log(aqo_dev,
+			"%s DT prop is missing for %s, using '%s' as value",
+			key, np->name, str);
+	}
+
+	if (!strcmp(str, "counter")) {
+		aqo_dev->ch_rx.proxy.mode = AQO_PROXY_MODE_COUNTER;
+	} else if (!strcmp(str, "head-pointer")) {
+		aqo_dev->ch_rx.proxy.mode = AQO_PROXY_MODE_HEADPTR;
+	} else {
+		aqo_log_err(aqo_dev, "Rx proxy mode %s is invalid", str);
+		return -EINVAL;
+	}
+
+	if (!aqo_proxy_valid(aqo_dev)) {
+		aqo_log_err(aqo_dev,
+			"Default proxy agent config is not valid");
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static int __aqo_parse_dt(struct aqo_device *aqo_dev)
@@ -575,10 +605,18 @@ static int aqo_start_rx(struct ipa_eth_device *eth_dev)
 		goto err_netdev_start;
 	}
 
+	rc = aqo_netdev_rxflow_set(aqo_dev);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to set Rx flow to IPA");
+		goto err_rxflow;
+	}
+
 	aqo_log(aqo_dev, "Started Rx offload");
 
 	return 0;
 
+err_rxflow:
+	aqo_netdev_stop_rx(aqo_dev);
 err_netdev_start:
 	aqo_proxy_stop(aqo_dev);
 err_proxy_start:
@@ -593,6 +631,7 @@ static int aqo_stop_rx(struct ipa_eth_device *eth_dev)
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
 	// TODO: check return status
+	aqo_netdev_rxflow_reset(aqo_dev);
 	aqo_netdev_start_rx(aqo_dev);
 	aqo_proxy_stop(aqo_dev);
 	aqo_gsi_stop_rx(aqo_dev);

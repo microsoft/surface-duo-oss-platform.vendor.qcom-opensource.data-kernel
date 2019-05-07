@@ -14,7 +14,27 @@
 
 #include "aqo_i.h"
 
+static const char *proxy_mode_names[AQO_PROXY_MODE_MAX] = {
+	[AQO_PROXY_MODE_COUNTER] = "Counter Forwarding",
+	[AQO_PROXY_MODE_HEADPTR] = "Head Pointer Forwarding",
+};
+
 /* uC as proxy agent */
+
+static bool proxy_valid_uc(struct aqo_device *aqo_dev)
+{
+	if (!aqo_dev->ch_rx.proxy.uc_ctx.valid) {
+		aqo_log(aqo_dev, "uC Rx Proxy config is not valid");
+		return false;
+	}
+
+	if (aqo_dev->ch_rx.proxy.mode != AQO_PROXY_MODE_COUNTER) {
+		aqo_log(aqo_dev, "uC Rx Proxy supports only counter mode");
+		return false;
+	}
+
+	return true;
+}
 
 static int proxy_init_uc(struct aqo_device *aqo_dev)
 {
@@ -98,7 +118,7 @@ static inline bool aqc_desc_dd(const u32 *desc_words)
 	return (desc_words[2] & 0x1);
 }
 
-static irqreturn_t proxy_rx_interrupt(int irq, void *data)
+static irqreturn_t host_rx_interrupt_headptr(int irq, void *data)
 {
 	struct aqo_proxy_host_context *host_ctx = data;
 
@@ -132,6 +152,32 @@ static irqreturn_t proxy_rx_interrupt(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t host_rx_interrupt_counter(int irq, void *data)
+{
+	struct aqo_proxy_host_context *host_ctx = data;
+
+	writel_relaxed(++(host_ctx->counter), host_ctx->gsi_db);
+
+	return IRQ_HANDLED;
+}
+
+static bool proxy_valid_host(struct aqo_device *aqo_dev)
+{
+	if (!aqo_dev->ch_rx.proxy.host_ctx.valid) {
+		aqo_log(aqo_dev, "Host Rx Proxy config is not valid");
+		return false;
+	}
+
+	if (aqo_dev->ch_rx.proxy.mode != AQO_PROXY_MODE_COUNTER &&
+			aqo_dev->ch_rx.proxy.mode != AQO_PROXY_MODE_HEADPTR) {
+		aqo_log(aqo_dev,
+			"Host Rx Proxy support only counter and headptr modes");
+		return false;
+	}
+
+	return true;
+}
+
 static int proxy_init_host(struct aqo_device *aqo_dev)
 {
 	struct aqo_proxy_host_context *host_ctx =
@@ -143,8 +189,8 @@ static int proxy_init_host(struct aqo_device *aqo_dev)
 						host_ctx->msi_addr.size,
 						DMA_FROM_DEVICE, 0);
 
+	/* Needed for head-pointer mode operation */
 	host_ctx->aqc_base = aqo_dev->regs_base.vaddr;
-
 	host_ctx->aqc_hp = AQC_RX_HEAD_PTR(host_ctx->aqc_base,
 				AQO_ETHDEV(aqo_dev)->ch_rx->queue);
 	host_ctx->gsi_db = ioremap_nocache(aqo_dev->ch_rx.gsi_db.paddr, 4);
@@ -156,6 +202,9 @@ static int proxy_init_host(struct aqo_device *aqo_dev)
 	host_ctx->desc_vbase = AQO_ETHDEV(aqo_dev)->ch_rx->desc_mem.vaddr;
 	host_ctx->max_head = AQO_ETHDEV(aqo_dev)->ch_rx->desc_count - 1;
 
+	/* Needed for counter mode operation */
+	host_ctx->counter = readl_relaxed(host_ctx->gsi_db);
+
 	aqo_log(aqo_dev, "Initialized Rx MSI host proxy");
 
 	return 0;
@@ -166,15 +215,30 @@ static int proxy_start_host(struct aqo_device *aqo_dev)
 	int rc;
 	struct aqo_proxy_host_context *host_ctx =
 		&aqo_dev->ch_rx.proxy.host_ctx;
+	enum aqo_proxy_mode proxy_mode = aqo_dev->ch_rx.proxy.mode;
+	irq_handler_t irq_handler = NULL;
 
-	rc = request_irq(host_ctx->irq, proxy_rx_interrupt,
-				IRQF_TRIGGER_RISING, "aqo-irq", host_ctx);
+	switch (proxy_mode) {
+	case AQO_PROXY_MODE_COUNTER:
+		irq_handler = host_rx_interrupt_counter;
+		break;
+	case AQO_PROXY_MODE_HEADPTR:
+		irq_handler = host_rx_interrupt_headptr;
+		break;
+	default:
+		aqo_log_bug(aqo_dev, "Unsupported proxy mode %d", proxy_mode);
+		return -EFAULT;
+	}
+
+	rc = request_irq(host_ctx->irq, irq_handler, IRQF_TRIGGER_RISING,
+				"aqo-irq", host_ctx);
 	if (rc)
 		aqo_log_err(aqo_dev, "Failed to register interrupt handler");
 	else
 		aqo_log(aqo_dev, "Registered interrupt handler");
 
-	aqo_log(aqo_dev, "Started Rx MSI host proxy");
+	aqo_log(aqo_dev, "Started Rx MSI host proxy in %s mode",
+			proxy_mode_names[proxy_mode]);
 
 	return rc;
 }
@@ -211,6 +275,7 @@ static int proxy_deinit_host(struct aqo_device *aqo_dev)
 
 struct
 {
+	bool (*valid)(struct aqo_device *aqo_dev);
 	int (*init)(struct aqo_device *aqo_dev);
 	int (*start)(struct aqo_device *aqo_dev);
 	int (*stop)(struct aqo_device *aqo_dev);
@@ -218,18 +283,30 @@ struct
 
 } proxy_ops[AQO_PROXY_MAX_AGENTS] = {
 	[AQO_PROXY_UC] = {
+		.valid = proxy_valid_uc,
 		.init = proxy_init_uc,
 		.start = proxy_start_uc,
 		.stop = proxy_stop_uc,
 		.deinit = proxy_deinit_uc,
 	},
 	[AQO_PROXY_HOST] = {
+		.valid = proxy_valid_host,
 		.init = proxy_init_host,
 		.start = proxy_start_host,
 		.stop = proxy_stop_host,
 		.deinit = proxy_deinit_host,
 	},
 };
+
+bool aqo_proxy_valid(struct aqo_device *aqo_dev)
+{
+	enum aqo_proxy_agent agent = aqo_dev->ch_rx.proxy.agent;
+
+	if (proxy_ops[agent].valid)
+		return proxy_ops[agent].valid(aqo_dev);
+
+	return true;
+}
 
 int aqo_proxy_init(struct aqo_device *aqo_dev)
 {

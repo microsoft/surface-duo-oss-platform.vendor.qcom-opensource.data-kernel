@@ -264,3 +264,76 @@ int aqo_netdev_stop_tx(struct aqo_device *aqo_dev)
 
 	return 0;
 }
+
+#define AQO_FLT_LOC_CATCH_ALL 40
+
+/**
+ * __config_catchall_filter() - Installs or removes the catch-all AQC Rx filter
+ *
+ * @aqo_dev: aqo_device pointer
+ * @insert: If true, inserts rule at %AQO_FLT_LOC_CATCH_ALL. Otherwise removes
+ *          any filter installed at the same location.
+ *
+ * Configure the catch-all filter on AQC NIC. When installed, the catch-all
+ * filter directs all incoming traffic to Rx queue associated with offload path.
+ * Catch-all filter in Aquantia is implemented using Flex Filter that matches
+ * the packet with zero bitmask (effectively matching any packet) and the filter
+ * is applied on any packet that is not already matched by other filters (except
+ * RSS filter).
+ *
+ * Returns 0 on success, non-zero otherwise.
+ */
+static int __config_catchall_filter(struct aqo_device *aqo_dev, bool insert)
+{
+	struct ethtool_rxnfc rxnfc;
+	struct net_device *net_dev = AQO_ETHDEV(aqo_dev)->net_dev;
+
+	if (!net_dev) {
+		aqo_log_err(aqo_dev, "Net device information is missing");
+		return -EFAULT;
+	}
+
+	if (!net_dev->ethtool_ops || !net_dev->ethtool_ops->set_rxnfc) {
+		aqo_log_err(aqo_dev,
+			"set_rxnfc is not supported by the network driver");
+		return -EFAULT;
+	}
+
+	if (!AQO_ETHDEV(aqo_dev)->ch_rx) {
+		aqo_log_err(aqo_dev, "Rx channel is not allocated");
+		return -EFAULT;
+	}
+
+	memset(&rxnfc, 0, sizeof(rxnfc));
+
+	rxnfc.cmd = insert ? ETHTOOL_SRXCLSRLINS : ETHTOOL_SRXCLSRLDEL;
+
+	rxnfc.fs.ring_cookie = AQO_ETHDEV(aqo_dev)->ch_rx->queue;
+	rxnfc.fs.location = AQO_FLT_LOC_CATCH_ALL;
+
+	return net_dev->ethtool_ops->set_rxnfc(net_dev, &rxnfc);
+}
+
+int aqo_netdev_rxflow_set(struct aqo_device *aqo_dev)
+{
+	int rc = __config_catchall_filter(aqo_dev, true);
+
+	if (rc)
+		aqo_log_err(aqo_dev, "Failed to install catch-all filter");
+	else
+		aqo_log(aqo_dev, "Installed Rx catch-all filter");
+
+	return rc;
+}
+
+int aqo_netdev_rxflow_reset(struct aqo_device *aqo_dev)
+{
+	int rc = __config_catchall_filter(aqo_dev, false);
+
+	if (rc)
+		aqo_log_err(aqo_dev, "Failed to remove catch-all filter");
+	else
+		aqo_log(aqo_dev, "Removed Rx catch-all filter");
+
+	return rc;
+}

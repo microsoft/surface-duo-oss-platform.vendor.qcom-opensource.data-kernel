@@ -1794,7 +1794,7 @@ static void DWC_ETH_QOS_unmap_rx_skb(struct DWC_ETH_QOS_prv_data *pdata,
 			dma_unmap_single(GET_MEM_PDEV_DEV, buffer->dma,
 					 (2 * buffer->rx_hdr_size),
 					 DMA_FROM_DEVICE);
-		} else if (pdata->dev->mtu > DWC_ETH_QOS_ETH_FRAME_LEN) {
+		} else if (pdata->jumbo_frame_supported && (pdata->dev->mtu > DWC_ETH_QOS_ETH_FRAME_LEN)) {
 			dma_unmap_page(GET_MEM_PDEV_DEV, buffer->dma,
 				       PAGE_SIZE, DMA_FROM_DEVICE);
 		} else {

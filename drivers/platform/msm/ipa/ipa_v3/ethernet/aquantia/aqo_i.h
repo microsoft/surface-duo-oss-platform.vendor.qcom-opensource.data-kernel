@@ -53,6 +53,12 @@ enum aqo_proxy_agent {
 	AQO_PROXY_MAX_AGENTS,
 };
 
+enum aqo_proxy_mode {
+	AQO_PROXY_MODE_COUNTER,
+	AQO_PROXY_MODE_HEADPTR,
+	AQO_PROXY_MODE_MAX,
+};
+
 struct aqo_proxy_host_context
 {
 	bool valid;
@@ -71,6 +77,8 @@ struct aqo_proxy_host_context
 	void *desc_vbase;
 	u32 max_head;
 	u32 head;
+
+	u32 counter;
 
 	struct task_struct *thread;
 };
@@ -91,6 +99,7 @@ struct aqo_proxy_uc_context
 
 struct aqo_proxy {
 	enum aqo_proxy_agent agent;
+	enum aqo_proxy_mode mode;
 
 	struct aqo_proxy_uc_context uc_ctx;
 	struct aqo_proxy_host_context host_ctx;
@@ -164,6 +173,11 @@ int aqo_netdev_deinit_tx_event(struct aqo_device *aqo_dev);
 
 int aqo_netdev_start_tx(struct aqo_device *aqo_dev);
 int aqo_netdev_stop_tx(struct aqo_device *aqo_dev);
+
+int aqo_netdev_rxflow_set(struct aqo_device *aqo_dev);
+int aqo_netdev_rxflow_reset(struct aqo_device *aqo_dev);
+
+bool aqo_proxy_valid(struct aqo_device *aqo_dev);
 
 int aqo_proxy_init(struct aqo_device *aqo_dev);
 int aqo_proxy_start(struct aqo_device *aqo_dev);
