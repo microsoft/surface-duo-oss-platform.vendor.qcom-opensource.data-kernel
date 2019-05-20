@@ -126,7 +126,8 @@
 #include <linux/mailbox_controller.h>
 #include <linux/ipc_logging.h>
 #include <linux/inetdevice.h>
-#include <net/addrconf.h>
+#include <net/inet_common.h>
+#include <net/ipv6.h>
 #include <linux/inet.h>
 #include <asm/uaccess.h>
 
@@ -729,6 +730,11 @@ extern void *ipc_emac_log_ctxt;
 /* EMAC HW version value from register */
 #define EMAC_HW_v2_3_2_RG 0x20030002
 
+#define DWC_ETH_QOS_AXI_CLK_INDEX 0
+#define DWC_ETH_QOS_PTP_CLK_INDEX 1
+#define DWC_ETH_QOS_RGMII_CLK_INDEX 2
+#define DWC_ETH_QOS_SLAVE_AHB_CLK_INDEX 3
+#define DWC_ETH_QOS_CLKS_MAX 4
 
 /* C data types typedefs */
 typedef unsigned short BOOL;
@@ -1894,6 +1900,7 @@ struct DWC_ETH_QOS_prv_data {
 	struct class* avb_class_b_class;
 
 	bool jumbo_frame_supported;
+	struct delayed_work ipv6_addr_assign_wq;
 };
 
 struct ip_params {
@@ -1904,7 +1911,8 @@ struct ip_params {
 	char ipv4_addr_str[32];
 	struct in_addr ipv4_addr;
 	bool is_valid_ipv4_addr;
-	char ipv6_addr[48];
+	char ipv6_addr_str[48];
+	struct in6_ifreq ipv6_addr;
 	bool is_valid_ipv6_addr;
 };
 
@@ -2070,8 +2078,8 @@ irqreturn_t DWC_ETH_QOS_PHY_ISR(int irq, void *dev_id);
 
 void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_dma_desc_stats_init(struct DWC_ETH_QOS_prv_data *pdata);
-int DWC_ETH_QOS_add_ipaddr(struct ip_params *ip_info, struct net_device *dev);
-int DWC_ETH_QOS_add_ipv6addr(struct ip_params *ip_info, struct net_device *dev);
+int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *);
+int DWC_ETH_QOS_add_ipv6addr(struct DWC_ETH_QOS_prv_data *);
 
 /* For debug prints*/
 #define DRV_NAME "qcom-emac-dwc-eqos"
