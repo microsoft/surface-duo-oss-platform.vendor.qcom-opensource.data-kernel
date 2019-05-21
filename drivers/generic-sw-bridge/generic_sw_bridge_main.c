@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved. */
 /*
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1053,13 +1053,33 @@ static void gsb_recv_dl_dp(void *priv, struct sk_buff *skb)
 static void gsb_wakeup_cb(void *ptr)
 {
 	struct gsb_if_info *if_info = (struct gsb_if_info *)ptr;
+	struct gsb_ctx *pgsb_ctx = __gc;
+
 	if (if_info == NULL)
 	{
 		DEBUG_ERROR("NULL node acquired\n");
 		BUG();
 		return;
 	}
-	queue_work(gsb_wq, &if_info->ipa_resume_task);
+
+	if (NULL == pgsb_ctx)
+	{
+		DEBUG_ERROR("Context is NULL\n");
+		return;
+	}
+
+	spin_lock_bh(&pgsb_ctx->gsb_lock);
+	/* We cannot assume the cb is called only IPA path is connected. */
+	if (if_info->is_connected_to_ipa_bridge &&
+		if_info->is_ipa_bridge_suspended)
+	{
+		spin_unlock_bh(&pgsb_ctx->gsb_lock);
+		DEBUG_INFO("Queue resume task for %s", if_info->if_name);
+		queue_work(gsb_wq, &if_info->ipa_resume_task);
+		return;
+	}
+	spin_unlock_bh(&pgsb_ctx->gsb_lock);
+	return;
 }
 
 static int gsb_ipa_set_perf_level(struct gsb_if_info *if_info)
