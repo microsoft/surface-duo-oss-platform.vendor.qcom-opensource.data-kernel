@@ -923,6 +923,11 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 		EMACINFO("Early ethernet is enabled\n");
 	}
 
+	dwc_eth_qos_res_data.phyad_change = 0;
+
+	if (of_property_read_bool(pdev->dev.of_node, "qcom,phyad_change"))
+		dwc_eth_qos_res_data.phyad_change = 1;
+
 	ret = DWC_ETH_QOS_get_io_macro_config(pdev);
 	if (ret)
 		goto err_out;
@@ -1474,11 +1479,27 @@ static int DWC_ETH_QOS_init_regulators(struct device *dev)
 			EMACERR("Cannot get <%s>\n", EMAC_VREG_EMAC_PHY_NAME);
 			return PTR_ERR(dwc_eth_qos_res_data.reg_emac_phy);
 		}
+		if (dwc_eth_qos_res_data.phyad_change) {
+			/* Specific load needs to be voted for vreg_emac_phy-supply in this case*/
+			ret = regulator_set_load(dwc_eth_qos_res_data.reg_emac_phy, 1000);
+			if (ret < 0) {
+				EMACERR("Unable to set HPM of vreg_emac_phy:%d\n", ret);
+				goto reg_error;
+			}
+			/* Specific voltage needs to be voted for vreg_emac_phy-supply in this case*/
+			ret = regulator_set_voltage(dwc_eth_qos_res_data.reg_emac_phy, 3075000,
+								3200000);
+			if (ret) {
+				EMACERR("Unable to set voltage for vreg_emac_phy:%d\n", ret);
+				goto reg_error;
+			}
+		}
 		ret = regulator_enable(dwc_eth_qos_res_data.reg_emac_phy);
 		if (ret) {
 			EMACERR("Can not enable <%s>\n", EMAC_VREG_EMAC_PHY_NAME);
 			goto reg_error;
 		}
+		EMACDBG("Enabled <%s>\n",EMAC_VREG_EMAC_PHY_NAME );
 	}
 
 	if (of_property_read_bool(dev->of_node, "vreg_rgmii_io_pads-supply")) {
@@ -1540,7 +1561,7 @@ static int setup_gpio_input_common
 	return ret;
 }
 
-static int setup_gpio_output_common
+int setup_gpio_output_common
 	(struct device *dev, const char *name, int *gpio, int value)
 {
 	int ret = 0;
@@ -1610,7 +1631,7 @@ static int DWC_ETH_QOS_init_gpios(struct device *dev)
 	}
 
 	if (dwc_eth_qos_res_data.is_gpio_phy_reset &&
-		!dwc_eth_qos_res_data.early_eth_en) {
+		!dwc_eth_qos_res_data.early_eth_en && !dwc_eth_qos_res_data.phyad_change) {
 		ret = setup_gpio_output_common(
 			dev, EMAC_GPIO_PHY_RESET_NAME,
 			&dwc_eth_qos_res_data.gpio_phy_reset, PHY_RESET_GPIO_LOW);

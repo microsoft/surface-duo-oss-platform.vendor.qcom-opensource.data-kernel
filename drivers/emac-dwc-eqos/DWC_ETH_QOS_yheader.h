@@ -1606,6 +1606,7 @@ struct DWC_ETH_QOS_res_data {
 	u32 bit_mask;
 	bool is_bit_mask;
 	bool early_eth_en;
+	bool phyad_change;
 };
 
 struct DWC_ETH_QOS_prv_ipa_data {
@@ -2080,7 +2081,8 @@ void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_dma_desc_stats_init(struct DWC_ETH_QOS_prv_data *pdata);
 int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *);
 int DWC_ETH_QOS_add_ipv6addr(struct DWC_ETH_QOS_prv_data *);
-
+int setup_gpio_output_common
+	(struct device *dev, const char *name, int *gpio, int value);
 /* For debug prints*/
 #define DRV_NAME "qcom-emac-dwc-eqos"
 #define dev_name_ipa_rx "IPA_RX"
