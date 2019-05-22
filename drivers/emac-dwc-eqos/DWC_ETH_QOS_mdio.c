@@ -1235,6 +1235,28 @@ int DWC_ETH_QOS_mdio_register(struct net_device *dev)
 
 	DBGPR_MDIO("-->DWC_ETH_QOS_mdio_register\n");
 
+	if (pdata->res_data->phyad_change) {
+			pdata->speed = SPEED_1000; //Default speed
+		DWC_ETH_QOS_set_clk_and_bus_config(pdata, pdata->speed);
+		ret = DWC_ETH_QOS_configure_io_macro_dll_settings(pdata);
+		if (ret < 0) {
+			EMACERR("Failed to configure IO macro and DLL settings\n");
+		}
+		if (pdata->res_data->is_gpio_phy_reset) {
+			ret = setup_gpio_output_common(
+			&pdata->pdev->dev, EMAC_GPIO_PHY_RESET_NAME,
+			&pdata->res_data->gpio_phy_reset, PHY_RESET_GPIO_LOW);
+			if (ret) {
+				EMACERR("Failed to setup <%s> gpio\n",
+					EMAC_GPIO_PHY_RESET_NAME);
+			}
+			mdelay(100);
+			gpio_set_value(pdata->res_data->gpio_phy_reset, PHY_RESET_GPIO_HIGH);
+			mdelay(100);
+		}
+	}
+
+
 	/* find the phy ID or phy address which is connected to our MAC */
 	for (phyaddr = 0; phyaddr < 32; phyaddr++) {
 
