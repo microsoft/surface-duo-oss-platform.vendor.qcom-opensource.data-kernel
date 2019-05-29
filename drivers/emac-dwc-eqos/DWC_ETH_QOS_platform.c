@@ -1744,7 +1744,7 @@ int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *pdata)
 	if (ret)
 		EMACERR( "Can't setup IPv4 address!: %d\r\n", ret);
 	else
-		EMACDBG("Assigned IPv4 address: %s\r\n", ip_info->ipv4_addr_str);
+		EMACINFO("Assigned IPv4 address: %s\r\n", ip_info->ipv4_addr_str);
 #endif
 	return ret;
 }
@@ -2600,7 +2600,7 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
 
-	EMACDBG("<--DWC_ETH_QOS_resume\n");
+	EMACINFO("<--DWC_ETH_QOS_resume done\n");
 
 	return ret;
 }
