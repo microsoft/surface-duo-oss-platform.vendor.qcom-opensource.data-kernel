@@ -129,10 +129,10 @@ static int aqo_parse_rx_proxy_host(struct device_node *np,
 	aqo_dev->ch_rx.proxy.host_ctx.msi_data = 1 << (hwirq % 32);
 
 	aqo_log_dbg(aqo_dev,
-			"MSI irq: %u, hwirq: %u, ispendr: %llx",
+			"MSI irq: %u, hwirq: %u, ispendr: 0x%llx",
 			irq, hwirq, reg);
 	aqo_log_dbg(aqo_dev,
-			"MSI addr: %lx, data: %lx",
+			"MSI addr: 0x%lx, data: 0x%lx",
 			aqo_dev->ch_rx.proxy.host_ctx.msi_addr.paddr,
 			aqo_dev->ch_rx.proxy.host_ctx.msi_data);
 
@@ -217,6 +217,456 @@ static int aqo_parse_rx_proxies(struct device_node *np,
 	return 0;
 }
 
+static int aqo_parse_rx_ring_size(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	key = "qcom,rx-ring-size";
+	rc = of_property_read_u32(np, key, &val32);
+	if (rc) {
+		val32 = AQO_AQC_RING_SZ_DEFAULT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, val32);
+	}
+
+	aqo_dev->ch_rx.ring_size = val32;
+	aqo_dev->ch_rx.ring_size =
+		clamp_val(aqo_dev->ch_rx.ring_size,
+			AQO_AQC_RING_SZ_MIN, AQO_AQC_RING_SZ_MAX);
+	aqo_dev->ch_rx.ring_size =
+		clamp_val(aqo_dev->ch_rx.ring_size,
+			AQO_GSI_RING_SZ_MIN, AQO_GSI_RING_SZ_MAX);
+	aqo_dev->ch_rx.ring_size =
+		rounddown(aqo_dev->ch_rx.ring_size, AQO_AQC_RING_SZ_ALIGN);
+	aqo_dev->ch_rx.ring_size =
+		rounddown(aqo_dev->ch_rx.ring_size, AQO_GSI_RING_SZ_ALIGN);
+
+	if (aqo_dev->ch_rx.ring_size != val32)
+		aqo_log(aqo_dev,
+			"Rx ring size clamped/realigned to %u",
+			aqo_dev->ch_rx.ring_size);
+
+	return 0;
+}
+
+static int aqo_parse_rx_buff_size(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	key = "qcom,rx-buff-size";
+	rc = of_property_read_u32(np, key, &val32);
+	if (rc) {
+		val32 = AQO_AQC_BUFF_SZ_DEFAULT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, val32);
+	}
+
+	aqo_dev->ch_rx.buff_size = val32;
+	aqo_dev->ch_rx.buff_size =
+		clamp_val(aqo_dev->ch_rx.buff_size,
+			AQO_AQC_BUFF_SZ_MIN, AQO_AQC_BUFF_SZ_MAX);
+	aqo_dev->ch_rx.buff_size =
+		rounddown(aqo_dev->ch_rx.buff_size, AQO_AQC_BUFF_SZ_ALIGN);
+
+	/* GSI receives buffer size as log2(buff_size) in a 16-bit field which
+	 * implies the following theoretical limitations:
+	 *   - Max buffer size of 2 ^ 65535 (which should never reach)
+	 *   - Buffer size to be a power of 2
+	 */
+	aqo_dev->ch_rx.buff_size =
+		roundup_pow_of_two(aqo_dev->ch_rx.buff_size);
+
+	if (aqo_dev->ch_rx.buff_size > AQO_AQC_BUFF_SZ_MAX)
+		aqo_dev->ch_rx.buff_size =
+			rounddown_pow_of_two(aqo_dev->ch_rx.buff_size);
+
+	if (aqo_dev->ch_rx.buff_size != val32)
+		aqo_log(aqo_dev,
+			"Rx buff size clamped/realigned to %u",
+			aqo_dev->ch_rx.buff_size);
+
+	return 0;
+}
+
+static int aqo_parse_rx_int_mod(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	key = "qcom,rx-int-mod-usecs";
+	rc = of_property_read_u32(np, key, &val32);
+	if (rc) {
+		val32 = AQO_AQC_RX_INT_MOD_USECS_DEFAULT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, val32);
+	}
+
+	aqo_dev->rx_int_mod_usecs =
+		clamp_val(val32,
+			AQO_AQC_RX_INT_MOD_USECS_MIN,
+			AQO_AQC_RX_INT_MOD_USECS_MAX);
+
+	if (aqo_dev->rx_int_mod_usecs != val32)
+		aqo_log(aqo_dev,
+			"Rx interrupt moderation clamped at %u usecs",
+			aqo_dev->rx_int_mod_usecs);
+
+	return 0;
+}
+
+static int aqo_parse_rx_gsi_modc(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	/* Set invalid modc so that we will know when we set one below */
+	aqo_dev->ch_rx.gsi_modc = aqo_dev->ch_rx.ring_size + 1;
+
+	key = "qcom,rx-gsi-mod-count";
+	rc = of_property_read_u32(np, key, &val32);
+	if (!rc) {
+		aqo_dev->ch_rx.gsi_modc = val32;
+		aqo_dev->ch_rx.gsi_modc =
+			clamp_val(aqo_dev->ch_rx.gsi_modc,
+				AQO_GSI_MODC_MIN, AQO_GSI_MODC_MAX);
+		aqo_dev->ch_rx.gsi_modc =
+			clamp_val(aqo_dev->ch_rx.gsi_modc,
+				0, aqo_dev->ch_rx.ring_size);
+		if (aqo_dev->ch_rx.gsi_modc != val32) {
+			aqo_log(aqo_dev, "Rx GSI MODC clamped at %u",
+				aqo_dev->ch_rx.gsi_modc);
+		}
+	}
+
+	key = "qcom,rx-gsi-mod-pc";
+	rc = of_property_read_u32(np, key, &val32);
+	if (!rc) {
+		u32 pc = clamp_val(val32, 0, 100);
+		u32 modc = (aqo_dev->ch_rx.ring_size * pc) / 100;
+
+		if (pc != val32) {
+			aqo_log(aqo_dev,
+				"Rx GSI MODC PC clamped at %u percent", pc);
+		}
+
+		/* If both qcom,rx-gsi-mod-count and qcom,rx-gsi-mod-pc are
+		 * specified, choose the lowest among them.
+		 */
+		if (modc < aqo_dev->ch_rx.gsi_modc) {
+			aqo_log(aqo_dev,
+				"Setting Rx GSI MODC to %u (%u %% of %u)",
+				modc, pc, aqo_dev->ch_rx.ring_size);
+			aqo_dev->ch_rx.gsi_modc =
+				clamp_val(modc,
+					AQO_GSI_MODC_MIN, AQO_GSI_MODC_MAX);
+			if (aqo_dev->ch_rx.gsi_modc != modc) {
+				aqo_log(aqo_dev, "Rx GSI MODC clamped at %u",
+					aqo_dev->ch_rx.gsi_modc);
+			}
+		}
+	}
+
+	/* Set default modc if a DT prop was not found above */
+	if (aqo_dev->ch_rx.gsi_modc > aqo_dev->ch_rx.ring_size) {
+		aqo_dev->ch_rx.gsi_modc = AQO_GSI_DEFAULT_RX_MODC;
+		aqo_log(aqo_dev, "Setting Rx GSI MODC to default %u",
+			aqo_dev->ch_rx.gsi_modc);
+	}
+
+	return 0;
+}
+
+static int aqo_parse_rx_gsi_modt(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	key = "qcom,rx-gsi-mod-timer";
+	rc = of_property_read_u32(np, key, &val32);
+	if (!rc) {
+		aqo_dev->ch_rx.gsi_modt = clamp_val(val32,
+					AQO_GSI_MODT_MIN, AQO_GSI_MODT_MAX);
+		if (aqo_dev->ch_rx.gsi_modt != val32) {
+			aqo_log(aqo_dev, "Rx GSI MODT clamped at %u cycles",
+				aqo_dev->ch_rx.gsi_modt);
+		}
+	} else {
+		aqo_dev->ch_rx.gsi_modt = AQO_GSI_DEFAULT_RX_MODT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, aqo_dev->ch_rx.gsi_modt);
+	}
+
+	return 0;
+}
+
+static int aqo_parse_rx_props(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	return aqo_parse_rx_ring_size(np, aqo_dev) ||
+		aqo_parse_rx_buff_size(np, aqo_dev) ||
+		aqo_parse_rx_int_mod(np, aqo_dev) ||
+		aqo_parse_rx_gsi_modc(np, aqo_dev) ||
+		aqo_parse_rx_gsi_modt(np, aqo_dev);
+}
+
+static int aqo_parse_tx_ring_size(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	key = "qcom,tx-ring-size";
+	rc = of_property_read_u32(np, key, &val32);
+	if (rc) {
+		val32 = AQO_AQC_RING_SZ_DEFAULT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, val32);
+	}
+
+	aqo_dev->ch_tx.ring_size = val32;
+	aqo_dev->ch_tx.ring_size =
+		clamp_val(aqo_dev->ch_tx.ring_size,
+			AQO_AQC_RING_SZ_MIN, AQO_AQC_RING_SZ_MAX);
+	aqo_dev->ch_tx.ring_size =
+		clamp_val(aqo_dev->ch_tx.ring_size,
+			AQO_GSI_RING_SZ_MIN, AQO_GSI_RING_SZ_MAX);
+	aqo_dev->ch_tx.ring_size =
+		rounddown(aqo_dev->ch_tx.ring_size, AQO_AQC_RING_SZ_ALIGN);
+	aqo_dev->ch_tx.ring_size =
+		rounddown(aqo_dev->ch_tx.ring_size, AQO_GSI_RING_SZ_ALIGN);
+
+	if (aqo_dev->ch_tx.ring_size != val32)
+		aqo_log(aqo_dev,
+			"Tx ring size clamped/realigned to %u",
+			aqo_dev->ch_tx.ring_size);
+
+	return 0;
+}
+
+static int aqo_parse_tx_buff_size(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	key = "qcom,tx-buff-size";
+	rc = of_property_read_u32(np, key, &val32);
+	if (rc) {
+		val32 = AQO_AQC_BUFF_SZ_DEFAULT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, val32);
+	}
+
+	aqo_dev->ch_tx.buff_size = val32;
+	aqo_dev->ch_tx.buff_size =
+		clamp_val(aqo_dev->ch_tx.buff_size,
+			AQO_AQC_BUFF_SZ_MIN, AQO_AQC_BUFF_SZ_MAX);
+	aqo_dev->ch_tx.buff_size =
+		rounddown(aqo_dev->ch_tx.buff_size, AQO_AQC_BUFF_SZ_ALIGN);
+
+	/* GSI receives buffer size as log2(buff_size) in a 16-bit field which
+	 * implies the following theoretical limitations:
+	 *   - Max buffer size of 2 ^ 65535 (which should never reach)
+	 *   - Buffer size to be a power of 2
+	 */
+	aqo_dev->ch_tx.buff_size =
+		roundup_pow_of_two(aqo_dev->ch_tx.buff_size);
+
+	if (aqo_dev->ch_tx.buff_size > AQO_AQC_BUFF_SZ_MAX)
+		aqo_dev->ch_tx.buff_size =
+			rounddown_pow_of_two(aqo_dev->ch_tx.buff_size);
+
+	if (aqo_dev->ch_tx.buff_size != val32)
+		aqo_log(aqo_dev,
+			"Tx buff size clamped/realigned to %u",
+			aqo_dev->ch_tx.buff_size);
+
+	return 0;
+}
+
+static int aqo_parse_tx_wrb_modc(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	/* Set invalid modc so that we will know when we set one below */
+	aqo_dev->tx_wrb_mod_count = aqo_dev->ch_tx.ring_size + 1;
+
+	key = "qcom,tx-wrb-mod-count";
+	rc = of_property_read_u32(np, key, &val32);
+	if (!rc) {
+		aqo_dev->tx_wrb_mod_count = val32;
+		aqo_dev->tx_wrb_mod_count =
+			clamp_val(aqo_dev->tx_wrb_mod_count,
+				AQO_GSI_TX_WRB_MODC_MIN,
+				AQO_GSI_TX_WRB_MODC_MAX);
+		aqo_dev->tx_wrb_mod_count =
+			clamp_val(aqo_dev->tx_wrb_mod_count,
+				0, aqo_dev->ch_tx.ring_size);
+		if (aqo_dev->tx_wrb_mod_count != val32) {
+			aqo_log(aqo_dev, "Tx WrB MODC clamped at %u",
+				aqo_dev->tx_wrb_mod_count);
+		}
+	}
+
+	key = "qcom,tx-wrb-mod-pc";
+	rc = of_property_read_u32(np, key, &val32);
+	if (!rc) {
+		u32 pc = clamp_val(val32, 0, 100);
+		u32 modc = (aqo_dev->ch_tx.ring_size * pc) / 100;
+
+		if (pc != val32) {
+			aqo_log(aqo_dev,
+				"Tx WrB MODC PC clamped at %u percent", pc);
+		}
+
+		if (modc < aqo_dev->tx_wrb_mod_count) {
+			aqo_log(aqo_dev,
+				"Setting Tx WrB MODC to %u (%u %% of %u)",
+				modc, pc, aqo_dev->ch_tx.ring_size);
+			aqo_dev->tx_wrb_mod_count =
+				clamp_val(modc,
+					AQO_GSI_TX_WRB_MODC_MIN,
+					AQO_GSI_TX_WRB_MODC_MAX);
+			if (aqo_dev->tx_wrb_mod_count != modc) {
+				aqo_log(aqo_dev, "Tx WrB MODC clamped at %u",
+					aqo_dev->tx_wrb_mod_count);
+			}
+		}
+	}
+
+	/* Set default modc if a DT prop was not found above */
+	if (aqo_dev->tx_wrb_mod_count > aqo_dev->ch_tx.ring_size) {
+		aqo_dev->tx_wrb_mod_count = AQO_GSI_TX_WRB_MODC_DEFAULT;
+		aqo_log(aqo_dev, "Setting Tx WrB MODC to default %u",
+			aqo_dev->tx_wrb_mod_count);
+	}
+
+	return 0;
+}
+
+static int aqo_parse_tx_gsi_modc(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	/* Set invalid modc so that we will know when we set one below */
+	aqo_dev->ch_tx.gsi_modc = aqo_dev->ch_tx.ring_size + 1;
+
+	key = "qcom,tx-gsi-mod-count";
+	rc = of_property_read_u32(np, key, &val32);
+	if (!rc) {
+		aqo_dev->ch_tx.gsi_modc = val32;
+		aqo_dev->ch_tx.gsi_modc =
+			clamp_val(aqo_dev->ch_tx.gsi_modc,
+				AQO_GSI_MODC_MIN, AQO_GSI_MODC_MAX);
+		aqo_dev->ch_tx.gsi_modc =
+			clamp_val(aqo_dev->ch_tx.gsi_modc,
+				0, aqo_dev->ch_tx.ring_size);
+		if (aqo_dev->ch_tx.gsi_modc != val32) {
+			aqo_log(aqo_dev, "Tx GSI MODC clamped at %u",
+				aqo_dev->ch_tx.gsi_modc);
+		}
+	}
+
+	key = "qcom,tx-gsi-mod-pc";
+	rc = of_property_read_u32(np, key, &val32);
+	if (!rc) {
+		u32 pc = clamp_val(val32, 0, 100);
+		u32 modc = (aqo_dev->ch_tx.ring_size * pc) / 100;
+
+		if (pc != val32) {
+			aqo_log(aqo_dev,
+				"Tx GSI MODC PC clamped at %u percent", pc);
+		}
+
+		/* If both qcom,tx-gsi-mod-count and qcom,tx-gsi-mod-pc are
+		 * specified, choose the lowest among them.
+		 */
+		if (modc < aqo_dev->ch_tx.gsi_modc) {
+			aqo_log(aqo_dev,
+				"Setting Tx GSI MODC to %u (%u %% of %u)",
+				modc, pc, aqo_dev->ch_tx.ring_size);
+			aqo_dev->ch_tx.gsi_modc =
+				clamp_val(modc,
+					AQO_GSI_MODC_MIN, AQO_GSI_MODC_MAX);
+			if (aqo_dev->ch_tx.gsi_modc != modc) {
+				aqo_log(aqo_dev, "Tx GSI MODC clamped at %u",
+					aqo_dev->ch_tx.gsi_modc);
+			}
+		}
+	}
+
+	/* Set default modc if a DT prop was not found above */
+	if (aqo_dev->ch_tx.gsi_modc > aqo_dev->ch_tx.ring_size) {
+		aqo_dev->ch_tx.gsi_modc = AQO_GSI_DEFAULT_TX_MODC;
+		aqo_log(aqo_dev, "Setting Tx GSI MODC to default %u",
+			aqo_dev->ch_tx.gsi_modc);
+	}
+
+	return 0;
+}
+
+static int aqo_parse_tx_gsi_modt(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	int rc;
+	u32 val32;
+	const char *key;
+
+	key = "qcom,tx-gsi-mod-timer";
+	rc = of_property_read_u32(np, key, &val32);
+	if (!rc) {
+		aqo_dev->ch_tx.gsi_modt = clamp_val(val32,
+					AQO_GSI_MODT_MIN, AQO_GSI_MODT_MAX);
+		if (aqo_dev->ch_tx.gsi_modt != val32) {
+			aqo_log(aqo_dev, "Tx GSI MODT clamped at %u cycles",
+				aqo_dev->ch_tx.gsi_modt);
+		}
+	} else {
+		aqo_dev->ch_tx.gsi_modt = AQO_GSI_DEFAULT_TX_MODT;
+		aqo_log(aqo_dev,
+			"DT prop %s is missing for %s, using default %lu",
+			key, np->name, aqo_dev->ch_tx.gsi_modt);
+	}
+
+	return 0;
+}
+
+static int aqo_parse_tx_props(struct device_node *np,
+		struct aqo_device *aqo_dev)
+{
+	return aqo_parse_tx_ring_size(np, aqo_dev) ||
+		aqo_parse_tx_buff_size(np, aqo_dev) ||
+		aqo_parse_tx_wrb_modc(np, aqo_dev) ||
+		aqo_parse_tx_gsi_modc(np, aqo_dev) ||
+		aqo_parse_tx_gsi_modt(np, aqo_dev);
+}
+
 static int __aqo_parse_dt(struct aqo_device *aqo_dev)
 {
 	int rc;
@@ -230,65 +680,17 @@ static int __aqo_parse_dt(struct aqo_device *aqo_dev)
 		return rc;
 	}
 
-	key = "qcom,rx-gsi-mod-count";
-	rc = of_property_read_u32(np, key, &val32);
-	if (!rc) {
-		aqo_dev->ch_rx.gsi_modc = val32;
-	} else {
-		aqo_dev->ch_rx.gsi_modc = AQO_GSI_DEFAULT_RX_MODC;
-		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
-			key, np->name, aqo_dev->ch_rx.gsi_modc);
+	rc = aqo_parse_rx_props(np, aqo_dev);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to parse rx properties");
+		return rc;
 	}
 
-	key = "qcom,rx-gsi-mod-timer";
-	rc = of_property_read_u32(np, key, &val32);
-	if (!rc) {
-		aqo_dev->ch_rx.gsi_modt = val32;
-	} else {
-		aqo_dev->ch_rx.gsi_modt = AQO_GSI_DEFAULT_RX_MODT;
-		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
-			key, np->name, aqo_dev->ch_rx.gsi_modt);
+	rc = aqo_parse_tx_props(np, aqo_dev);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to parse tx properties");
+		return rc;
 	}
-
-	key = "qcom,tx-gsi-mod-count";
-	rc = of_property_read_u32(np, key, &val32);
-	if (!rc) {
-		aqo_dev->ch_tx.gsi_modc = val32;
-	} else {
-		aqo_dev->ch_tx.gsi_modc = AQO_GSI_DEFAULT_TX_MODC;
-		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
-			key, np->name, aqo_dev->ch_tx.gsi_modc);
-	}
-
-	key = "qcom,tx-gsi-mod-timer";
-	rc = of_property_read_u32(np, key, &val32);
-	if (!rc) {
-		aqo_dev->ch_tx.gsi_modt = val32;
-	} else {
-		aqo_dev->ch_tx.gsi_modt = AQO_GSI_DEFAULT_TX_MODT;
-		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
-			key, np->name, aqo_dev->ch_tx.gsi_modt);
-	}
-
-	key = "qcom,rx-mod-usecs";
-	if (of_property_read_u32(np, key, &val32)) {
-		val32 = AQO_DEFAULT_RX_MOD_USECS;
-		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
-			key, np->name, val32);
-	}
-
-	aqo_dev->rx_mod_usecs = clamp_val(val32, AQO_MIN_RX_MOD_USECS,
-						AQO_MAX_RX_MOD_USECS);
-
-	if (val32 != aqo_dev->rx_mod_usecs)
-		aqo_log(aqo_dev,
-			"Rx interrupt moderation clamped at %u usecs",
-			aqo_dev->rx_mod_usecs);
 
 	aqo_dev->pci_direct = of_property_read_bool(np, "qcom,use-pci-direct");
 
@@ -344,7 +746,7 @@ static int aqo_parse(struct aqo_device *aqo_dev)
 	return rc;
 }
 
-static int aqo_pci_probe(struct ipa_eth_device *eth_dev)
+static int aqo_pair(struct ipa_eth_device *eth_dev)
 {
 	int rc = 0;
 	struct aqo_device *aqo_dev;
@@ -368,18 +770,6 @@ static int aqo_pci_probe(struct ipa_eth_device *eth_dev)
 		goto err_parse;
 	}
 
-	rc = eth_dev->nd->ops->open_device(eth_dev);
-	if (rc) {
-		aqo_log_err(aqo_dev, "Failed to open network device");
-		goto err_open;
-	}
-
-	if (!eth_dev->net_dev) {
-		rc = -EFAULT;
-		aqo_log_bug(aqo_dev, "Missing net_device information");
-		goto err_netdev;
-	}
-
 	aqo_dev->regs_base.vaddr =
 		ioremap_nocache(aqo_dev->regs_base.paddr,
 			aqo_dev->regs_base.size);
@@ -394,15 +784,12 @@ static int aqo_pci_probe(struct ipa_eth_device *eth_dev)
 
 	return 0;
 
-err_netdev:
-	eth_dev->nd->ops->close_device(eth_dev);
-err_open:
 err_parse:
 	devm_kfree(eth_dev->dev, aqo_dev);
 	return rc;
 }
 
-static void aqo_pci_remove(struct ipa_eth_device *eth_dev)
+static void aqo_unpair(struct ipa_eth_device *eth_dev)
 {
 	struct device *dev = eth_dev->dev;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
@@ -416,8 +803,6 @@ static void aqo_pci_remove(struct ipa_eth_device *eth_dev)
 	mutex_unlock(&aqo_devices_lock);
 
 	iounmap(aqo_dev->regs_base.vaddr);
-
-	(void) AQO_NETOPS(aqo_dev)->close_device(eth_dev);
 
 	devm_kfree(dev, aqo_dev);
 }
@@ -433,7 +818,7 @@ static int aqo_init_tx(struct ipa_eth_device *eth_dev)
 		goto err_netdev_init_ch;
 	}
 
-	rc = ipa_eth_ep_init(AQO_ETHDEV(aqo_dev)->ch_tx);
+	rc = ipa_eth_ep_init(aqo_dev->ch_tx.eth_ch);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to initialize Tx IPA endpoint");
 		goto err_ep_init;
@@ -481,7 +866,7 @@ static int aqo_start_tx(struct ipa_eth_device *eth_dev)
 		goto err_gsi_start;
 	}
 
-	rc = ipa_eth_ep_start(AQO_ETHDEV(aqo_dev)->ch_tx);
+	rc = ipa_eth_ep_start(aqo_dev->ch_tx.eth_ch);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to start Tx IPA endpoint");
 		goto err_ep_start;
@@ -537,7 +922,7 @@ static int aqo_init_rx(struct ipa_eth_device *eth_dev)
 		goto err_netdev_init_ch;
 	}
 
-	rc = ipa_eth_ep_init(AQO_ETHDEV(aqo_dev)->ch_rx);
+	rc = ipa_eth_ep_init(aqo_dev->ch_rx.eth_ch);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to initialize Rx IPA endpoint");
 		goto err_ep_init;
@@ -581,7 +966,7 @@ static int aqo_start_rx(struct ipa_eth_device *eth_dev)
 	int rc = 0;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
-	rc = ipa_eth_ep_start(AQO_ETHDEV(aqo_dev)->ch_rx);
+	rc = ipa_eth_ep_start(aqo_dev->ch_rx.eth_ch);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to start Rx IPA endpoint");
 		goto err_ep_start;
@@ -632,7 +1017,7 @@ static int aqo_stop_rx(struct ipa_eth_device *eth_dev)
 
 	// TODO: check return status
 	aqo_netdev_rxflow_reset(aqo_dev);
-	aqo_netdev_start_rx(aqo_dev);
+	aqo_netdev_stop_rx(aqo_dev);
 	aqo_proxy_stop(aqo_dev);
 	aqo_gsi_stop_rx(aqo_dev);
 
@@ -670,6 +1055,9 @@ static int aqo_clear_stats(struct ipa_eth_device *eth_dev)
 }
 
 static struct ipa_eth_offload_ops aqo_offload_ops = {
+	.pair = aqo_pair,
+	.unpair = aqo_unpair,
+
 	.init_tx = aqo_init_tx,
 	.start_tx = aqo_start_tx,
 	.stop_tx = aqo_stop_tx,
@@ -684,16 +1072,10 @@ static struct ipa_eth_offload_ops aqo_offload_ops = {
 	.clear_stats = aqo_clear_stats,
 };
 
-static struct ipa_eth_bus_ops aqo_bus_ops = {
-	.probe = aqo_pci_probe,
-	.remove = aqo_pci_remove,
-};
-
 static struct ipa_eth_offload_driver aqo_offload_driver = {
 	.name = aqo_driver_name,
 	.bus = &pci_bus_type,
 	.ops = &aqo_offload_ops,
-	.bus_ops = &aqo_bus_ops,
 };
 
 int __init aqo_init(void)

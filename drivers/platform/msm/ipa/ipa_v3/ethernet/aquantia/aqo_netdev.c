@@ -10,28 +10,40 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/iommu.h>
+
 #include "aqo_i.h"
-
-static int aqo_netdev_process_skb(struct ipa_eth_channel *ch,
-	struct sk_buff *skb)
-{
-	struct aqo_device *aqo_dev = (struct aqo_device *) ch->od_priv;
-
-	if (IPA_ETH_CH_IS_RX(ch))
-		return AQO_NETOPS(aqo_dev)->receive_skb(AQO_ETHDEV(aqo_dev), skb);
-
-	if (IPA_ETH_CH_IS_TX(ch))
-		return AQO_NETOPS(aqo_dev)->transmit_skb(AQO_ETHDEV(aqo_dev), skb);
-
-	return -ENODEV;
-}
 
 int aqo_netdev_init_rx_channel(struct aqo_device *aqo_dev)
 {
+	struct ipa_eth_channel_mem_params mem_params = {
+		.desc = {
+			.count = aqo_dev->ch_rx.ring_size,
+			.hw_map_params = {
+				[IPA_ETH_HW_GSI] = {
+					.map = true,
+					.sym = true,
+					.read = true,
+					.write = true,
+				},
+			},
+		},
+		.buff = {
+			.size = aqo_dev->ch_rx.buff_size,
+			.hw_map_params = {
+				[IPA_ETH_HW_IPA] = {
+					.map = true,
+					.sym = true,
+					.read = true,
+					.write = false,
+				},
+			},
+		},
+	};
 	struct ipa_eth_channel *ch = NULL;
 
-	ch = AQO_NETOPS(aqo_dev)->request_channel(
-			AQO_ETHDEV(aqo_dev), IPA_ETH_DIR_RX, 0, 0);
+	ch = ipa_eth_net_request_channel(AQO_ETHDEV(aqo_dev),
+		IPA_CLIENT_AQC_ETHERNET_PROD, 0, 0, &mem_params);
 	if (IS_ERR_OR_NULL(ch)) {
 		return ch ? PTR_ERR(ch) : -ENOMEM;
 	}
@@ -39,20 +51,15 @@ int aqo_netdev_init_rx_channel(struct aqo_device *aqo_dev)
 	aqo_log(aqo_dev, "Allocated AQC Rx channel %u", ch->queue);
 
 	ch->od_priv = aqo_dev;
-
-	ch->ipa_ep_num = -1; /* IPA_EP_NOT_ALLOCATED */
-	ch->ipa_client = IPA_CLIENT_AQC_ETHERNET_PROD;
-	ch->process_skb = aqo_netdev_process_skb;
-
-	AQO_ETHDEV(aqo_dev)->ch_rx = ch;
+	aqo_dev->ch_rx.eth_ch = ch;
 
 	return 0;
 }
 
 int aqo_netdev_deinit_rx_channel(struct aqo_device *aqo_dev)
 {
-	AQO_NETOPS(aqo_dev)->release_channel(AQO_ETHDEV(aqo_dev)->ch_rx);
-	AQO_ETHDEV(aqo_dev)->ch_rx = NULL;
+	ipa_eth_net_release_channel(aqo_dev->ch_rx.eth_ch);
+	aqo_dev->ch_rx.eth_ch = NULL;
 
 	aqo_log(aqo_dev, "Deallocated AQC Rx channel");
 
@@ -79,17 +86,16 @@ int aqo_netdev_init_rx_event(struct aqo_device *aqo_dev)
 	aqo_log(aqo_dev, "Requesting AQC Rx MSI to address %llx using data %lx",
 			msi_addr, msi_data);
 
-	return AQO_NETOPS(aqo_dev)->request_event(
-			AQO_ETHDEV(aqo_dev)->ch_rx, IPA_ETH_DEV_EV_RX_INT,
-			msi_addr, msi_data);
+	return ipa_eth_net_request_event(aqo_dev->ch_rx.eth_ch,
+			IPA_ETH_DEV_EV_RX_INT, msi_addr, msi_data);
 }
 
 int aqo_netdev_deinit_rx_event(struct aqo_device *aqo_dev)
 {
 	aqo_log(aqo_dev, "Releasing AQC Rx MSI");
 
-	AQO_NETOPS(aqo_dev)->release_event(
-		AQO_ETHDEV(aqo_dev)->ch_rx, IPA_ETH_DEV_EV_RX_INT);
+	ipa_eth_net_release_event(aqo_dev->ch_rx.eth_ch,
+			IPA_ETH_DEV_EV_RX_INT);
 
 	return 0;
 }
@@ -97,20 +103,19 @@ int aqo_netdev_deinit_rx_event(struct aqo_device *aqo_dev)
 int aqo_netdev_start_rx(struct aqo_device *aqo_dev)
 {
 	int rc;
-	struct ipa_eth_channel *ch = AQO_ETHDEV(aqo_dev)->ch_rx;
+	struct ipa_eth_channel *ch = aqo_dev->ch_rx.eth_ch;
 
-	rc = AQO_NETOPS(aqo_dev)->moderate_event(
-			ch, IPA_ETH_DEV_EV_RX_INT, 0, 0,
-			aqo_dev->rx_mod_usecs, aqo_dev->rx_mod_usecs * 2);
+	rc = ipa_eth_net_moderate_event(ch, IPA_ETH_DEV_EV_RX_INT, 0, 0,
+		aqo_dev->rx_int_mod_usecs, aqo_dev->rx_int_mod_usecs * 2);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to set AQC Rx MSI moderation");
 		return rc;
 	}
 
 	aqo_log(aqo_dev, "AQC Rx MSI moderation set to [%u,%u] usecs",
-			aqo_dev->rx_mod_usecs, aqo_dev->rx_mod_usecs * 2);
+		aqo_dev->rx_int_mod_usecs, aqo_dev->rx_int_mod_usecs * 2);
 
-	rc = AQO_NETOPS(aqo_dev)->enable_event(ch, IPA_ETH_DEV_EV_RX_INT);
+	rc = ipa_eth_net_enable_event(ch, IPA_ETH_DEV_EV_RX_INT);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to enable AQC Rx MSI event");
 		return rc;
@@ -118,10 +123,10 @@ int aqo_netdev_start_rx(struct aqo_device *aqo_dev)
 
 	aqo_log(aqo_dev, "Enabled AQC Rx MSI event");
 
-	rc = AQO_NETOPS(aqo_dev)->enable_channel(ch);
+	rc = ipa_eth_net_enable_channel(ch);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to enable AQC Rx channel");
-		AQO_NETOPS(aqo_dev)->disable_event(ch, IPA_ETH_DEV_EV_RX_INT);
+		ipa_eth_net_disable_event(ch, IPA_ETH_DEV_EV_RX_INT);
 		return rc;
 	}
 
@@ -134,15 +139,15 @@ int aqo_netdev_start_rx(struct aqo_device *aqo_dev)
 int aqo_netdev_stop_rx(struct aqo_device *aqo_dev)
 {
 	int rc_ev, rc_ch;
-	struct ipa_eth_channel *ch = AQO_ETHDEV(aqo_dev)->ch_rx;
+	struct ipa_eth_channel *ch = aqo_dev->ch_rx.eth_ch;
 
-	rc_ch = AQO_NETOPS(aqo_dev)->disable_channel(ch);
+	rc_ch = ipa_eth_net_disable_channel(ch);
 	if (rc_ch)
 		aqo_log_err(aqo_dev, "Failed to stop AQC Rx channel");
 	else
 		aqo_log(aqo_dev, "Stopped AQC Rx channel");
 
-	rc_ev = AQO_NETOPS(aqo_dev)->disable_event(ch, IPA_ETH_DEV_EV_RX_INT);
+	rc_ev = ipa_eth_net_disable_event(ch, IPA_ETH_DEV_EV_RX_INT);
 	if (rc_ch)
 		aqo_log_err(aqo_dev, "Failed to disable AQC Rx MSI event");
 	else
@@ -158,10 +163,34 @@ int aqo_netdev_stop_rx(struct aqo_device *aqo_dev)
 
 int aqo_netdev_init_tx_channel(struct aqo_device *aqo_dev)
 {
+	struct ipa_eth_channel_mem_params mem_params = {
+		.desc = {
+			.count = aqo_dev->ch_tx.ring_size,
+			.hw_map_params = {
+				[IPA_ETH_HW_GSI] = {
+					.map = true,
+					.sym = true,
+					.read = true,
+					.write = true,
+				},
+			},
+		},
+		.buff = {
+			.size = aqo_dev->ch_tx.buff_size,
+			.hw_map_params = {
+				[IPA_ETH_HW_IPA] = {
+					.map = true,
+					.sym = true,
+					.read = false,
+					.write = true,
+				},
+			},
+		},
+	};
 	struct ipa_eth_channel *ch = NULL;
 
-	ch = AQO_NETOPS(aqo_dev)->request_channel(AQO_ETHDEV(aqo_dev),
-			IPA_ETH_DIR_TX, 0, 0);
+	ch = ipa_eth_net_request_channel(AQO_ETHDEV(aqo_dev),
+		IPA_CLIENT_AQC_ETHERNET_CONS, 0, 0, &mem_params);
 	if (IS_ERR_OR_NULL(ch)) {
 		return ch ? PTR_ERR(ch) : -ENOMEM;
 	}
@@ -169,20 +198,15 @@ int aqo_netdev_init_tx_channel(struct aqo_device *aqo_dev)
 	aqo_log(aqo_dev, "Allocated AQC Tx channel %u", ch->queue);
 
 	ch->od_priv = aqo_dev;
-
-	ch->ipa_ep_num = -1; /* IPA_EP_NOT_ALLOCATED */
-	ch->ipa_client = IPA_CLIENT_AQC_ETHERNET_CONS;
-	ch->process_skb = aqo_netdev_process_skb;
-
-	AQO_ETHDEV(aqo_dev)->ch_tx = ch;
+	aqo_dev->ch_tx.eth_ch = ch;
 
 	return 0;
 }
 
 int aqo_netdev_deinit_tx_channel(struct aqo_device *aqo_dev)
 {
-	AQO_NETOPS(aqo_dev)->release_channel(AQO_ETHDEV(aqo_dev)->ch_tx);
-	AQO_ETHDEV(aqo_dev)->ch_tx = NULL;
+	ipa_eth_net_release_channel(aqo_dev->ch_tx.eth_ch);
+	aqo_dev->ch_tx.eth_ch = NULL;
 
 	aqo_log(aqo_dev, "Deallocated AQC Tx channel");
 
@@ -193,17 +217,15 @@ int aqo_netdev_init_tx_event(struct aqo_device *aqo_dev)
 {
 	aqo_log(aqo_dev, "Requesting AQC Tx head pointer write-back");
 
-	return AQO_NETOPS(aqo_dev)->request_event(
-			AQO_ETHDEV(aqo_dev)->ch_tx, IPA_ETH_DEV_EV_TX_PTR,
-			aqo_dev->ch_tx.gsi_db.paddr, 0);
+	return ipa_eth_net_request_event(aqo_dev->ch_tx.eth_ch,
+			IPA_ETH_DEV_EV_TX_PTR, aqo_dev->ch_tx.gsi_db.paddr, 0);
 }
 
 int aqo_netdev_deinit_tx_event(struct aqo_device *aqo_dev)
 {
 	aqo_log(aqo_dev, "Releasing AQC Tx head pointer write-back");
 
-	AQO_NETOPS(aqo_dev)->release_event(
-		AQO_ETHDEV(aqo_dev)->ch_tx, IPA_ETH_DEV_EV_TX_PTR);
+	ipa_eth_net_release_event(aqo_dev->ch_tx.eth_ch, IPA_ETH_DEV_EV_TX_PTR);
 
 	return 0;
 }
@@ -211,12 +233,12 @@ int aqo_netdev_deinit_tx_event(struct aqo_device *aqo_dev)
 int aqo_netdev_start_tx(struct aqo_device *aqo_dev)
 {
 	int rc;
-	struct ipa_eth_channel *ch = AQO_ETHDEV(aqo_dev)->ch_tx;
+	struct ipa_eth_channel *ch = aqo_dev->ch_tx.eth_ch;
 
 	/* Head pointer write-back need to be enabled before enabling channel
 	 * in order to avoid missing events
 	 */
-	rc = AQO_NETOPS(aqo_dev)->enable_event(ch, IPA_ETH_DEV_EV_TX_PTR);
+	rc = ipa_eth_net_enable_event(ch, IPA_ETH_DEV_EV_TX_PTR);
 	if (rc) {
 		aqo_log_err(aqo_dev,
 			"Failed to enable AQC Tx Head pointer write-back");
@@ -225,10 +247,10 @@ int aqo_netdev_start_tx(struct aqo_device *aqo_dev)
 
 	aqo_log(aqo_dev, "Enabled AQC Tx Head pointer write-back");
 
-	rc = AQO_NETOPS(aqo_dev)->enable_channel(ch);
+	rc = ipa_eth_net_enable_channel(ch);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to enable AQC Tx channel");
-		AQO_NETOPS(aqo_dev)->disable_event(ch, IPA_ETH_DEV_EV_TX_PTR);
+		ipa_eth_net_disable_event(ch, IPA_ETH_DEV_EV_TX_PTR);
 		return rc;
 	}
 
@@ -240,15 +262,15 @@ int aqo_netdev_start_tx(struct aqo_device *aqo_dev)
 int aqo_netdev_stop_tx(struct aqo_device *aqo_dev)
 {
 	int rc_ev, rc_ch;
-	struct ipa_eth_channel *ch = AQO_ETHDEV(aqo_dev)->ch_tx;
+	struct ipa_eth_channel *ch = aqo_dev->ch_tx.eth_ch;
 
-	rc_ch = AQO_NETOPS(aqo_dev)->disable_channel(ch);
+	rc_ch = ipa_eth_net_disable_channel(ch);
 	if (rc_ch)
 		aqo_log_err(aqo_dev, "Failed to stop AQC Tx channel");
 	else
 		aqo_log(aqo_dev, "Stopped AQC Tx channel");
 
-	rc_ev = AQO_NETOPS(aqo_dev)->disable_event(ch, IPA_ETH_DEV_EV_TX_PTR);
+	rc_ev = ipa_eth_net_disable_event(ch, IPA_ETH_DEV_EV_TX_PTR);
 	if (rc_ch)
 		aqo_log_err(aqo_dev,
 			"Failed to disable AQC Tx head pointer write-back");
@@ -260,7 +282,7 @@ int aqo_netdev_stop_tx(struct aqo_device *aqo_dev)
 		return -EFAULT;
 	}
 
-	aqo_log(aqo_dev, "Stopped AQC Rx");
+	aqo_log(aqo_dev, "Stopped AQC Tx");
 
 	return 0;
 }
@@ -287,6 +309,7 @@ static int __config_catchall_filter(struct aqo_device *aqo_dev, bool insert)
 {
 	struct ethtool_rxnfc rxnfc;
 	struct net_device *net_dev = AQO_ETHDEV(aqo_dev)->net_dev;
+	struct ipa_eth_channel *ch = aqo_dev->ch_rx.eth_ch;
 
 	if (!net_dev) {
 		aqo_log_err(aqo_dev, "Net device information is missing");
@@ -299,7 +322,7 @@ static int __config_catchall_filter(struct aqo_device *aqo_dev, bool insert)
 		return -EFAULT;
 	}
 
-	if (!AQO_ETHDEV(aqo_dev)->ch_rx) {
+	if (!ch) {
 		aqo_log_err(aqo_dev, "Rx channel is not allocated");
 		return -EFAULT;
 	}
@@ -308,7 +331,7 @@ static int __config_catchall_filter(struct aqo_device *aqo_dev, bool insert)
 
 	rxnfc.cmd = insert ? ETHTOOL_SRXCLSRLINS : ETHTOOL_SRXCLSRLDEL;
 
-	rxnfc.fs.ring_cookie = AQO_ETHDEV(aqo_dev)->ch_rx->queue;
+	rxnfc.fs.ring_cookie = ch->queue;
 	rxnfc.fs.location = AQO_FLT_LOC_CATCH_ALL;
 
 	return net_dev->ethtool_ops->set_rxnfc(net_dev, &rxnfc);
