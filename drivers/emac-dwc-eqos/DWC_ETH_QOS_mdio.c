@@ -985,7 +985,7 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 	if (new_state) {
 		phy_print_status(phydev);
 
-#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+#if defined DWC_ETH_QOS_BUILTIN && defined CONFIG_MSM_BOOT_TIME_MARKER
 		if ((phydev->link == 1) && !pdata->print_kpi) {
 			place_marker("M - Ethernet is Ready.Link is UP");
 			pdata->print_kpi = 1;
