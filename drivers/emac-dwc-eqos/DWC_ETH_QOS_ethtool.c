@@ -372,7 +372,7 @@ static const struct DWC_ETH_QOS_stats DWC_ETH_QOS_mmc[] = {
 	DWC_ETH_QOS_MMC_STAT(mmc_rx_ipv4_hderr_octets),
 	DWC_ETH_QOS_MMC_STAT(mmc_rx_ipv4_nopay_octets),
 	DWC_ETH_QOS_MMC_STAT(mmc_rx_ipv4_frag_octets),
-	DWC_ETH_QOS_MMC_STAT(mmc_rx_ipv4_udp_csum_disable_octets),
+	DWC_ETH_QOS_MMC_STAT(mmc_rx_ipv4_udp_cs_dis_oct),
 
 	/* IPV6 */
 	DWC_ETH_QOS_MMC_STAT(mmc_rx_ipv6_gd),
@@ -586,8 +586,8 @@ void convert_kset_to_legacy_cmd(const struct ethtool_link_ksettings *new_cmd,
 	legacy->transceiver = new_cmd->base.transceiver;
 	legacy->eth_tp_mdix_ctrl = new_cmd->base.eth_tp_mdix_ctrl;
 
-	legacy->advertising = (__u32)new_cmd->link_modes.advertising;
-	legacy->lp_advertising = (__u32)new_cmd->link_modes.lp_advertising;
+	legacy->advertising = (uintptr_t)new_cmd->link_modes.advertising;
+	legacy->lp_advertising = (uintptr_t)new_cmd->link_modes.lp_advertising;
 
 	ethtool_cmd_speed_set(legacy, new_cmd->base.speed);
 	link_mode = ethtool_convert_link_mode_to_legacy_u32(&legacy->supported,

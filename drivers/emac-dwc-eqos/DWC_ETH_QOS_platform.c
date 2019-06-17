@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -147,14 +147,14 @@ int DWC_ETH_QOS_create_debugfs(struct DWC_ETH_QOS_prv_data *pdata)
 	pdata->debugfs_dir = debugfs_create_dir("eth", NULL);
 
 	if (!pdata->debugfs_dir) {
-		EMACERR( "Cannot create debugfs dir %d \n", (int)pdata->debugfs_dir);
+		EMACERR( "Cannot create debugfs dir %p \n", pdata->debugfs_dir);
 		return -ENOMEM;
 	}
 
 	phy_reg_dump = debugfs_create_file("phy_reg_dump", S_IRUSR, pdata->debugfs_dir,
 				pdata, &fops_phy_reg_dump);
 	if (!phy_reg_dump || IS_ERR(phy_reg_dump)) {
-		EMACERR( "Cannot create debugfs phy_reg_dump %d \n", (int)phy_reg_dump);
+		EMACERR( "Cannot create debugfs phy_reg_dump %p \n", phy_reg_dump);
 		goto fail;
 	}
 
@@ -371,7 +371,6 @@ err_out:
 static int DWC_ETH_QOS_get_phy_intr_config(struct platform_device *pdev)
 {
 	int ret = 0;
-	struct resource *resource = NULL;
 	EMACDBG("Enter\n");
 
 	dwc_eth_qos_res_data.phy_intr = platform_get_irq_byname(pdev, "phy-intr");
@@ -771,17 +770,17 @@ err_out:
 	return ret;
 }
 
-static int DWC_ETH_QOS_iounmap(void)
+static void DWC_ETH_QOS_iounmap(void)
 {
 	if (dwc_eth_qos_base_addr)
 		iounmap((void __iomem *)dwc_eth_qos_base_addr);
 
-	dwc_eth_qos_base_addr = NULL;
+	dwc_eth_qos_base_addr = 0;
 
 	if (dwc_rgmii_io_csr_base_addr)
 		iounmap((void __iomem *)dwc_rgmii_io_csr_base_addr);
 
-	dwc_rgmii_io_csr_base_addr = NULL;
+	dwc_rgmii_io_csr_base_addr = 0;
 
 }
 
@@ -789,8 +788,8 @@ static int DWC_ETH_QOS_ioremap(void)
 {
 	int ret = 0;
 
-	dwc_eth_qos_base_addr = NULL;
-	dwc_rgmii_io_csr_base_addr = NULL;
+	dwc_eth_qos_base_addr = 0;
+	dwc_rgmii_io_csr_base_addr = 0;
 
 	dwc_eth_qos_base_addr = (ULONG)ioremap(
 	   dwc_eth_qos_res_data.emac_mem_base,
@@ -840,7 +839,7 @@ int DWC_ETH_QOS_update_rgmii_tx_drv_strength(struct DWC_ETH_QOS_prv_data *pdata)
 
 	tlmm_central_base = resource->start;
 	tlmm_central_size = resource_size(resource);
-	EMACDBG("tlmm_central_base = 0x%x, size = 0x%x\n",
+	EMACDBG("tlmm_central_base = 0x%lx, size = 0x%lx\n",
 			tlmm_central_base, tlmm_central_size);
 
 
@@ -959,11 +958,12 @@ int DWC_ETH_QOS_enable_ptp_clk(struct device *dev)
 	int ret;
 	const char* ptp_clock_name;
 
-	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0 ||
-		dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2)
-		ptp_clock_name = "emac_ptp_clk";
-	else
-		ptp_clock_name = "eth_ptp_clk";
+        ret = of_property_read_string_index(dev->of_node, "clock-names", DWC_ETH_QOS_PTP_CLK_INDEX, &ptp_clock_name);
+
+        if (ret){
+           EMACERR("unable get ptp clk name\n");
+           return ret;
+        }
 
 	/* valid value of dwc_eth_qos_res_data.ptp_clk indicates that clock is enabled */
 	if (!dwc_eth_qos_res_data.ptp_clk) {
@@ -1102,24 +1102,31 @@ static int DWC_ETH_QOS_get_clks(struct device *dev)
 	const char* axi_clock_name;
 	const char* ahb_clock_name;
 	const char* rgmii_clock_name;
-
 	dwc_eth_qos_res_data.axi_clk = NULL;
 	dwc_eth_qos_res_data.ahb_clk = NULL;
 	dwc_eth_qos_res_data.rgmii_clk = NULL;
 	dwc_eth_qos_res_data.ptp_clk = NULL;
 
-	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_0 ||
-		(dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2)) {
-		/* EMAC core version 2.1.0 clocks */
-		axi_clock_name = "emac_axi_clk";
-		ahb_clock_name = "emac_slv_ahb_clk";
-		rgmii_clock_name = "emac_rgmii_clk";
-	} else {
-		/* Default values are for EMAC core version 2.0.0 clocks */
-		axi_clock_name = "eth_axi_clk";
-		ahb_clock_name = "eth_slave_ahb_clk";
-		rgmii_clock_name = "eth_rgmii_clk";
-	}
+        ret = of_property_read_string_index(dev->of_node, "clock-names", DWC_ETH_QOS_AXI_CLK_INDEX, &axi_clock_name);
+
+        if (ret){
+           EMACERR("unable get axi clk name\n");
+           return ret;
+        }
+
+        ret = of_property_read_string_index(dev->of_node, "clock-names", DWC_ETH_QOS_SLAVE_AHB_CLK_INDEX, &ahb_clock_name);
+
+        if (ret){
+           EMACERR("unable get ahb clk name\n");
+           return ret;
+        }
+
+        ret = of_property_read_string_index(dev->of_node, "clock-names", DWC_ETH_QOS_RGMII_CLK_INDEX, &rgmii_clock_name);
+
+        if (ret){
+           EMACERR("unable get rgmii clk name\n");
+           return ret;
+        }
 
 	dwc_eth_qos_res_data.axi_clk = devm_clk_get(dev, axi_clock_name);
 	if (IS_ERR(dwc_eth_qos_res_data.axi_clk)) {
@@ -1188,14 +1195,14 @@ static int DWC_ETH_QOS_panic_notifier(struct notifier_block *this,
 			(unsigned int *)kzalloc(dwc_eth_qos_res_data.emac_mem_size, GFP_KERNEL);
 		EMACINFO("emac register mem 0x%p\n", gDWC_ETH_QOS_prv_data->emac_reg_base_address);
 		if (gDWC_ETH_QOS_prv_data->emac_reg_base_address != NULL)
-			memcpy(gDWC_ETH_QOS_prv_data->emac_reg_base_address, dwc_eth_qos_base_addr,
+			memcpy(gDWC_ETH_QOS_prv_data->emac_reg_base_address, (ULONG *)dwc_eth_qos_base_addr,
 				   dwc_eth_qos_res_data.emac_mem_size);
 
 		gDWC_ETH_QOS_prv_data->rgmii_reg_base_address =
 			(unsigned int *)kzalloc(dwc_eth_qos_res_data.rgmii_mem_size, GFP_KERNEL);
 		EMACINFO("rgmii register mem 0x%p\n", gDWC_ETH_QOS_prv_data->rgmii_reg_base_address);
 		if (gDWC_ETH_QOS_prv_data->rgmii_reg_base_address != NULL)
-			memcpy(gDWC_ETH_QOS_prv_data->rgmii_reg_base_address, dwc_rgmii_io_csr_base_addr,
+			memcpy(gDWC_ETH_QOS_prv_data->rgmii_reg_base_address, (ULONG *)dwc_rgmii_io_csr_base_addr,
 				   dwc_eth_qos_res_data.rgmii_mem_size);
 	}
 	return NOTIFY_DONE;
@@ -1502,9 +1509,9 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		dwc_eth_qos_res_data.io_macro_tx_mode_non_id;
 	pdata->io_macro_phy_intf = dwc_eth_qos_res_data.io_macro_phy_intf;
 	pdata->emac_reg_base_address =
-		dwc_eth_qos_res_data.emac_mem_base;
+		(unsigned int *)(long)dwc_eth_qos_res_data.emac_mem_base;
 	pdata->rgmii_reg_base_address =
-		dwc_eth_qos_res_data.rgmii_mem_base;
+		(unsigned int *)(long)dwc_eth_qos_res_data.rgmii_mem_base;
 #ifdef DWC_ETH_QOS_CONFIG_DEBUGFS
 	/* to give prv data to debugfs */
 	DWC_ETH_QOS_get_pdata(pdata);

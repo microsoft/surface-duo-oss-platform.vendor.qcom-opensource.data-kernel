@@ -4085,7 +4085,7 @@ static INT DWC_ETH_QOS_yexit(void)
 	vy_count = 0;
 	while (1) {
 		if (vy_count > RETRYCOUNT) {
-			EMACERR("Unable to reset MAC 0x%x\n", VARDMA_BMR);
+			EMACERR("Unable to reset MAC 0x%lx\n", VARDMA_BMR);
 			return -Y_FAILURE;
 		}
 
@@ -4659,12 +4659,13 @@ static INT configure_mac(struct DWC_ETH_QOS_prv_data *pdata)
 
 	/* Configure for Jumbo frame in MAC */
 	if (pdata->dev->mtu > DWC_ETH_QOS_ETH_FRAME_LEN) {
-		if (pdata->dev->mtu < DWC_ETH_QOS_MAX_GPSL) {
-			MAC_MCR_JE_UDFWR(0x1);
-			MAC_MCR_WD_UDFWR(0x0);
-			MAC_MCR_GPSLCE_UDFWR(0x0);
-			MAC_MCR_JD_UDFWR(0x0);
-		} else {
+           if (pdata->jumbo_frame_supported) {
+              if (pdata->dev->mtu < DWC_ETH_QOS_MAX_GPSL) {
+                        MAC_MCR_JE_UDFWR(0x1);
+                        MAC_MCR_WD_UDFWR(0x0);
+                        MAC_MCR_GPSLCE_UDFWR(0x0);
+                        MAC_MCR_JD_UDFWR(0x0);
+                } else {
 			MAC_MCR_JE_UDFWR(0x0);
 			MAC_MCR_WD_UDFWR(0x1);
 			MAC_MCR_GPSLCE_UDFWR(0x1);
@@ -4674,7 +4675,17 @@ static INT configure_mac(struct DWC_ETH_QOS_prv_data *pdata)
 				"Configured Gaint Packet Size Limit to %d\n",
 				DWC_ETH_QOS_MAX_SUPPORTED_MTU);
 		}
-		EMACDBG("Enabled JUMBO pkt\n");
+                EMACDBG("Enabled JUMBO pkt\n");
+           } else {
+               MAC_MCR_WD_UDFWR(0x0);
+               MAC_MCR_JE_UDFWR(0x0);
+               MAC_MCR_GPSLCE_UDFWR(0x1);
+               MAC_MECR_GPSL_UDFWR(DWC_ETH_QOS_MAX_SUPPORTED_MTU);
+               MAC_MCR_JD_UDFWR(0x0);
+               EMACDBG(
+                       "Configured Gaint Packet Size Limit to %d\n",
+                       DWC_ETH_QOS_MAX_SUPPORTED_MTU);
+           }
 	} else {
 		MAC_MCR_JE_UDFWR(0x0);
 		MAC_MCR_WD_UDFWR(0x0);

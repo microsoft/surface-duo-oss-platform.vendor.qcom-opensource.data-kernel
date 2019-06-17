@@ -1701,16 +1701,19 @@ static int DWC_ETH_QOS_alloc_rx_buf(struct DWC_ETH_QOS_prv_data *pdata,
 
 static void DWC_ETH_QOS_configure_rx_fun_ptr(struct DWC_ETH_QOS_prv_data *pdata)
 {
+	int  max_frame = 0;
 	DBGPR("-->DWC_ETH_QOS_configure_rx_fun_ptr\n");
 
 	if (pdata->rx_split_hdr) {
 		pdata->clean_rx = DWC_ETH_QOS_clean_split_hdr_rx_irq;
 		pdata->alloc_rx_buf = DWC_ETH_QOS_alloc_split_hdr_rx_buf;
-	} else if (pdata->dev->mtu > DWC_ETH_QOS_ETH_FRAME_LEN) {
-		pdata->clean_rx = DWC_ETH_QOS_clean_jumbo_rx_irq;
-		pdata->alloc_rx_buf = DWC_ETH_QOS_alloc_jumbo_rx_buf;
-	} else {
-		pdata->rx_buffer_len = DWC_ETH_QOS_ETH_FRAME_LEN;
+	} else if (pdata->jumbo_frame_supported && (pdata->dev->mtu > DWC_ETH_QOS_ETH_FRAME_LEN)) {
+               pdata->clean_rx = DWC_ETH_QOS_clean_jumbo_rx_irq;
+               pdata->alloc_rx_buf = DWC_ETH_QOS_alloc_jumbo_rx_buf;
+        } else {
+		max_frame = pdata->dev->mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
+		pdata->rx_buffer_len = (max_frame > DWC_ETH_QOS_ETH_FRAME_LEN ?
+		   ALIGN(max_frame, 8) : DWC_ETH_QOS_ETH_FRAME_LEN) + DWC_ETH_QOS_ETH_FRAME_PADDING_ISSUE;
 		pdata->clean_rx = DWC_ETH_QOS_clean_rx_irq;
 		pdata->alloc_rx_buf = DWC_ETH_QOS_alloc_rx_buf;
 	}
@@ -1983,7 +1986,7 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct desc_if_struct *desc_if = &pdata->desc_if;
-	int ret = 0, qinx = 0;
+	int qinx = 0;
 
 	DBGPR("-->DWC_ETH_QOS_close\n");
 
@@ -5153,10 +5156,6 @@ void DWC_ETH_QOS_pps_timer_init(struct ifr_data_struct *req)
 
 	/* Enable timestamping. This is required to start system time generator.*/
 	MAC_TCR_TSENA_UDFWR(0x1);
-	MAC_TCR_TSCTRLSSR_UDFWR(0x1);
-	MAC_TCR_TSVER2ENA_UDFWR(0x1);
-	MAC_TCR_TSIPENA_UDFWR(0x1);
-	MAC_TCR_TSENALL_UDFWR(0x1);
 
 	/* Configure MAC Sub-second and Sub-nanosecond increment register based on PTP clock. */
 	MAC_SSIR_SSINC_UDFWR(0x4); // Sub-second increment value for 250MHz and 230.4MHz ptp clock
@@ -5222,7 +5221,6 @@ void stop_pps(int ch)
 int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
 {
 	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
-	struct hw_if_struct *hw_if = &pdata->hw_if;
 	unsigned int val;
 	int interval, width;
 	int interval_ns; /*interval in nano seconds*/
@@ -6249,6 +6247,7 @@ static INT DWC_ETH_QOS_change_mtu(struct net_device *dev, INT new_mtu)
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	int max_frame = (new_mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN);
+	int old_mtu = dev->mtu;
 
 	DBGPR("-->DWC_ETH_QOS_change_mtu: new_mtu:%d\n", new_mtu);
 
@@ -6262,40 +6261,25 @@ static INT DWC_ETH_QOS_change_mtu(struct net_device *dev, INT new_mtu)
 		return 0;
 	}
 
-	/* Supported frame sizes */
-	if ((new_mtu < DWC_ETH_QOS_MIN_SUPPORTED_MTU) ||
+	/*for MIN MTU, it may be possible that HW can add padded bytes to
+	make it 60B. However, currently MIN MTU is not being supporting
+	via this command
+        */
+	if ((max_frame < DWC_ETH_QOS_MIN_SUPPORTED_MTU) ||
 	    (max_frame > DWC_ETH_QOS_MAX_SUPPORTED_MTU)) {
-		dev_alert(&pdata->pdev->dev,
-			  "%s: invalid MTU, min %d and max %d MTU are supported\n",
-		       dev->name, DWC_ETH_QOS_MIN_SUPPORTED_MTU,
-		       DWC_ETH_QOS_MAX_SUPPORTED_MTU);
+		EMACERR("invalid MTU setting %s: %s: %d: %d\n",__FILE__,__FUNCTION__,__LINE__,max_frame);
 		return -EINVAL;
 	}
-
-	dev_alert(&pdata->pdev->dev, "changing MTU from %d to %d\n",
-		  dev->mtu, new_mtu);
-
-	DWC_ETH_QOS_stop_dev(pdata);
-
-	if (max_frame <= 2048)
-		pdata->rx_buffer_len = 2048;
-	else
-		pdata->rx_buffer_len = PAGE_SIZE;
-	/* in case of JUMBO frame,
-	 * max buffer allocated is
-	 * PAGE_SIZE
-	 */
-
-	if ((max_frame == ETH_FRAME_LEN + ETH_FCS_LEN) ||
-	    (max_frame == ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN))
-		pdata->rx_buffer_len =
-		    DWC_ETH_QOS_ETH_FRAME_LEN;
-
-	dev->mtu = new_mtu;
-
-	DWC_ETH_QOS_start_dev(pdata);
-
-	DBGPR("<--DWC_ETH_QOS_change_mtu\n");
+	/*set MTU */
+	if (old_mtu != new_mtu && netif_running(dev)) {
+		DWC_ETH_QOS_close(dev);
+		EMACINFO("changing MTU from %d to %d\n", dev->mtu, new_mtu);
+		pdata->dev->mtu = new_mtu;
+		pdata->rx_buffer_len = (max_frame > DWC_ETH_QOS_ETH_FRAME_LEN ?
+				   ALIGN(max_frame, 8) : DWC_ETH_QOS_ETH_FRAME_LEN) + DWC_ETH_QOS_ETH_FRAME_PADDING_ISSUE;
+		netdev_update_features(dev);
+		DWC_ETH_QOS_open(dev);
+	}
 
 	return 0;
 }
@@ -6306,7 +6290,7 @@ u16	DWC_ETH_QOS_select_queue(struct net_device *dev,
 	select_queue_fallback_t fallback)
 {
 	u16 txqueue_select = ALL_OTHER_TRAFFIC_TX_CHANNEL;
-	UINT qtag_type, eth_type, priority;
+	UINT eth_type, priority;
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 
 	/* Retrieve ETH type */
@@ -6511,7 +6495,6 @@ INT DWC_ETH_QOS_powerdown(struct net_device *dev, UINT wakeup_type,
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
-	ULONG flags;
 
 	DBGPR(KERN_ALERT "-->DWC_ETH_QOS_powerdown\n");
 
@@ -7982,7 +7965,7 @@ void DWC_ETH_QOS_mmc_read(struct DWC_ETH_QOS_mmc_counters *mmc)
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_NOPAY_OCTETS_RGOFFADDR);
 	mmc->mmc_rx_ipv4_frag_octets +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_FRAG_OCTETS_RGOFFADDR);
-	mmc->mmc_rx_ipv4_udp_csum_disable_octets +=
+	mmc->mmc_rx_ipv4_udp_cs_dis_oct +=
 		DWC_ETH_QOS_reg_read(MMC_RXIPV4_UDSBL_OCTETS_RGOFFADDR);
 
 	/* IPV6 */

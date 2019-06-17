@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights
  * reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -377,10 +377,10 @@ extern void *ipc_emac_log_ctxt;
 #define VLAN_HLEN 0
 #endif
 
-#define PADDING_ISSUE (2*8)
-#define DWC_ETH_QOS_ETH_FRAME_LEN (ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN + PADDING_ISSUE)
+#define DWC_ETH_QOS_ETH_FRAME_PADDING_ISSUE (2*8)
+#define DWC_ETH_QOS_ETH_FRAME_LEN (ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN)
 
-#define DWC_ETH_QOS_ETH_FRAME_LEN_IPA	((1<<11) + PADDING_ISSUE) /*IPA can support 2KB max pkt length*/
+#define DWC_ETH_QOS_ETH_FRAME_LEN_IPA	((1<<11)) /*IPA can support 2KB max pkt length*/
 
 #define FIFO_SIZE_B(x) (x)
 #define FIFO_SIZE_KB(x) (x * 1024)
@@ -389,7 +389,8 @@ extern void *ipc_emac_log_ctxt;
 #define DWC_ETH_QOS_MAX_DATA_PER_TX_BUF BIT(12)	/* for testing purpose: 4 KB Maximum data per buffer pointer(in Bytes) */
 #define DWC_ETH_QOS_MAX_DATA_PER_TXD (DWC_ETH_QOS_MAX_DATA_PER_TX_BUF * 2)	/* Maxmimum data per descriptor(in Bytes) */
 
-#define DWC_ETH_QOS_MAX_SUPPORTED_MTU 16380
+#define DWC_ETH_QOS_MAX_MTU_SIZE (1 << 11)     /*2KB to support gaint packets*/
+#define DWC_ETH_QOS_MAX_SUPPORTED_MTU DWC_ETH_QOS_MAX_MTU_SIZE
 #define DWC_ETH_QOS_MAX_GPSL 9000 /* Default maximum Gaint Packet Size Limit */
 #define DWC_ETH_QOS_MIN_SUPPORTED_MTU (ETH_ZLEN + ETH_FCS_LEN + VLAN_HLEN)
 
@@ -707,6 +708,13 @@ extern void *ipc_emac_log_ctxt;
 #define EMAC_HW_v2_3_1 7
 #define EMAC_HW_v2_3_2 8
 #define EMAC_HW_vMAX 9
+
+
+#define DWC_ETH_QOS_AXI_CLK_INDEX 0
+#define DWC_ETH_QOS_PTP_CLK_INDEX 1
+#define DWC_ETH_QOS_RGMII_CLK_INDEX 2
+#define DWC_ETH_QOS_SLAVE_AHB_CLK_INDEX 3
+#define DWC_ETH_QOS_CLKS_MAX 4
 
 /* C data types typedefs */
 typedef unsigned short BOOL;
@@ -1391,7 +1399,7 @@ struct DWC_ETH_QOS_mmc_counters {
 	unsigned long mmc_rx_ipv4_hderr_octets;
 	unsigned long mmc_rx_ipv4_nopay_octets;
 	unsigned long mmc_rx_ipv4_frag_octets;
-	unsigned long mmc_rx_ipv4_udp_csum_disable_octets;
+	unsigned long mmc_rx_ipv4_udp_cs_dis_oct;
 
 	/* IPV6 */
 	unsigned long mmc_rx_ipv6_gd;
@@ -1853,6 +1861,8 @@ struct DWC_ETH_QOS_prv_data {
 	struct dentry *debugfs_dir;
 	/* ptp clock frequency set by PTPCLK_Config ioctl default value is 250MHz */
 	unsigned int ptpclk_freq;
+
+	bool jumbo_frame_supported;
 };
 
 typedef enum {

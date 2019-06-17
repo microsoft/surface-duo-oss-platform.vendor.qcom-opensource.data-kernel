@@ -1095,9 +1095,9 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 	}
 
 #ifndef DWC_ETH_QOS_EMULATION_PLATFORM
-	if (pdata->enable_phy_intr && pdata->phy_irq && ((phydev->phy_id == ATH8031_PHY_ID)
-					|| (phydev->phy_id == ATH8035_PHY_ID))
-					|| (phydev->phy_id & phydev->drv->phy_id_mask) == MICREL_PHY_ID) {
+	if ((pdata->enable_phy_intr) && (pdata->phy_irq) && ((phydev->phy_id == ATH8031_PHY_ID)
+					|| (phydev->phy_id == ATH8035_PHY_ID)
+					|| ((phydev->phy_id & phydev->drv->phy_id_mask) == MICREL_PHY_ID))) {
 		pdata->phy_intr_en = true;
 		EMACDBG("Phy interrupt enabled\n");
 	} else
