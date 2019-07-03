@@ -670,8 +670,6 @@ static int aqo_parse_tx_props(struct device_node *np,
 static int __aqo_parse_dt(struct aqo_device *aqo_dev)
 {
 	int rc;
-	u32 val32;
-	const char *key;
 	struct device_node *np = aqo_dev->eth_dev->dev->of_node;
 
 	rc = aqo_parse_rx_proxies(np, aqo_dev);
@@ -1054,6 +1052,30 @@ static int aqo_clear_stats(struct ipa_eth_device *eth_dev)
 	return 0;
 }
 
+#if IPA_ETH_API_VER >= 3
+static int aqo_save_regs(struct ipa_eth_device *eth_dev,
+		void **regs, size_t *size)
+{
+	size_t num_regs;
+	struct aqo_device *aqo_dev = eth_dev->od_priv;
+	struct aqo_regs *regs_save = &aqo_dev->regs_save;
+
+	memset(regs_save, 0, sizeof(*regs_save));
+
+	num_regs = aqo_regs_save(aqo_dev, regs_save);
+	if (!num_regs)
+		return -EFAULT;
+
+	if (regs)
+		*regs = regs_save;
+
+	if (size)
+		*size = sizeof(*regs_save);
+
+	return 0;
+}
+#endif
+
 static struct ipa_eth_offload_ops aqo_offload_ops = {
 	.pair = aqo_pair,
 	.unpair = aqo_unpair,
@@ -1070,6 +1092,10 @@ static struct ipa_eth_offload_ops aqo_offload_ops = {
 
 	.get_stats = aqo_get_stats,
 	.clear_stats = aqo_clear_stats,
+
+#if IPA_ETH_API_VER >= 3
+	.save_regs = aqo_save_regs,
+#endif
 };
 
 static struct ipa_eth_offload_driver aqo_offload_driver = {

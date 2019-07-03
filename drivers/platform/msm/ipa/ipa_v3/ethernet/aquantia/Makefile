@@ -7,4 +7,6 @@ aqc-ipa-y := aqo_main.o \
 		aqo_netdev.o \
 		aqo_proxy.o \
 		aqo_uc.o \
+		aqo_regs.o \
+
 

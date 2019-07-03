@@ -158,6 +158,8 @@ struct aqo_device {
 	u32 tx_wrb_mod_count;
 
 	bool pci_direct;
+
+	struct aqo_regs regs_save;
 };
 
 #define AQO_ETHDEV(aqo_dev) ((aqo_dev)->eth_dev)
@@ -215,6 +217,8 @@ int aqo_proxy_init(struct aqo_device *aqo_dev);
 int aqo_proxy_start(struct aqo_device *aqo_dev);
 int aqo_proxy_stop(struct aqo_device *aqo_dev);
 int aqo_proxy_deinit(struct aqo_device *aqo_dev);
+
+size_t aqo_regs_save(struct aqo_device *aqo_dev, struct aqo_regs *regs);
 
 #define AQO_LOG_PREFIX "[aqo] "
 
