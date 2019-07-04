@@ -1006,9 +1006,8 @@ int DWC_ETH_QOS_update_rgmii_tx_drv_strength(struct DWC_ETH_QOS_prv_data *pdata)
 	resource = platform_get_resource_byname(pdata->pdev, IORESOURCE_MEM,
 			"tlmm-central-base");
 	if (!resource) {
-		EMACERR("get rgmii-base resource failed\n");
-		ret = -ENODEV;
-		goto err_out;
+           EMACINFO("Resource tlmm-central-base not found \n");
+           goto err_out;
 	}
 
 	tlmm_central_base = resource->start;
@@ -1026,19 +1025,60 @@ int DWC_ETH_QOS_update_rgmii_tx_drv_strength(struct DWC_ETH_QOS_prv_data *pdata)
 	}
 	EMACDBG("dwc_tlmm_central = %#lx\n", tlmm_central_base_addr);
 
+	EMACINFO("IOMACRO pads voltage: %u uV\n", dwc_eth_qos_res_data.reg_rgmii_io_pads_voltage);
 
-	if (pdata->always_on_phy) {
-		TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_WR(
-		   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_16mA,
-		   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
-		   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA);
-	} else if (pdata->phydev) {
-		if (pdata->phydev->phy_id == ATH8035_PHY_ID){
-			TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_WR(
-			   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
-			   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
-			   TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA);
-		}
+	switch (dwc_eth_qos_res_data.reg_rgmii_io_pads_voltage)
+	{
+		case 1500000:
+		case 1800000:
+			{
+			   switch (pdata->emac_hw_version_type)
+			   {
+			      case EMAC_HW_v2_0_0:
+			      case EMAC_HW_v2_2_0:
+			      case EMAC_HW_v2_3_2:
+				 {
+				       TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_WR(
+						 TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_16mA,
+						 TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_16mA,
+						 TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_16mA);
+					TLMM_RGMII_RX_HV_MODE_CTL_RGWR(0x0);
+				 }
+				 break;
+			      default:
+				 break;
+			   }
+			}
+			break;
+		case 2500000:
+			{
+				switch (pdata->emac_hw_version_type)
+				{
+					case EMAC_HW_v2_0_0:
+					case EMAC_HW_v2_2_0:
+						{
+							if (pdata->always_on_phy) {
+								TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_WR(
+									TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_16mA,
+									TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
+									TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA);
+							} else if (pdata->phydev) {
+								if (pdata->phydev->phy_id == ATH8035_PHY_ID){
+									TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_WR(
+										TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
+										TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA,
+										TLMM_RGMII_HDRV_PULL_CTL1_TX_HDRV_14mA);
+								}
+							}
+						}
+						break;
+					default:
+							break;
+				}
+			}
+			break;
+		default:
+			break;
 	}
 
 err_out:
@@ -1422,7 +1462,8 @@ static int DWC_ETH_QOS_init_regulators(struct device *dev)
 			devm_regulator_get(dev, EMAC_GDSC_EMAC_NAME);
 		if (IS_ERR(dwc_eth_qos_res_data.gdsc_emac)) {
 			EMACERR("Can not get <%s>\n", EMAC_GDSC_EMAC_NAME);
-			return PTR_ERR(dwc_eth_qos_res_data.gdsc_emac);
+			ret = PTR_ERR(dwc_eth_qos_res_data.gdsc_emac);
+                        goto reg_error;
 		}
 
 		ret = regulator_enable(dwc_eth_qos_res_data.gdsc_emac);
@@ -1433,26 +1474,13 @@ static int DWC_ETH_QOS_init_regulators(struct device *dev)
 		EMACDBG("Enabled <%s>\n", EMAC_GDSC_EMAC_NAME);
 	}
 
-	if (of_property_read_bool(dev->of_node, "vreg_rgmii-supply")) {
-		dwc_eth_qos_res_data.reg_rgmii =
-			devm_regulator_get(dev, EMAC_VREG_RGMII_NAME);
-		if (IS_ERR(dwc_eth_qos_res_data.reg_rgmii)) {
-			EMACERR("Can not get <%s>\n", EMAC_VREG_RGMII_NAME);
-			return PTR_ERR(dwc_eth_qos_res_data.reg_rgmii);
-		}
-		ret = regulator_enable(dwc_eth_qos_res_data.reg_rgmii);
-		if (ret) {
-			EMACERR("Cannot enable <%s>\n", EMAC_VREG_RGMII_NAME);
-			goto reg_error;
-		}
-	}
-
 	if (of_property_read_bool(dev->of_node, "vreg_emac_phy-supply")) {
 		dwc_eth_qos_res_data.reg_emac_phy =
 			devm_regulator_get(dev, EMAC_VREG_EMAC_PHY_NAME);
 		if (IS_ERR(dwc_eth_qos_res_data.reg_emac_phy)) {
 			EMACERR("Cannot get <%s>\n", EMAC_VREG_EMAC_PHY_NAME);
-			return PTR_ERR(dwc_eth_qos_res_data.reg_emac_phy);
+			ret = PTR_ERR(dwc_eth_qos_res_data.reg_emac_phy);
+                        goto reg_error;
 		}
 		if (dwc_eth_qos_res_data.phyad_change) {
 			/* Specific load needs to be voted for vreg_emac_phy-supply in this case*/
@@ -1482,11 +1510,38 @@ static int DWC_ETH_QOS_init_regulators(struct device *dev)
 			devm_regulator_get(dev, EMAC_VREG_RGMII_IO_PADS_NAME);
 		if (IS_ERR(dwc_eth_qos_res_data.reg_rgmii_io_pads)) {
 			EMACERR("Cannot get <%s>\n", EMAC_VREG_RGMII_IO_PADS_NAME);
-			return PTR_ERR(dwc_eth_qos_res_data.reg_rgmii_io_pads);
+			ret = PTR_ERR(dwc_eth_qos_res_data.reg_rgmii_io_pads);
+                        goto reg_error;
 		}
 		ret = regulator_enable(dwc_eth_qos_res_data.reg_rgmii_io_pads);
 		if (ret) {
 			EMACERR("Can not enable <%s>\n", EMAC_VREG_RGMII_IO_PADS_NAME);
+			goto reg_error;
+		}
+		/* Reading current voltage for fixed regulators from PMIC is not possible,
+		 * Use regulator_get_voltage to read minV value set in device tree node.
+		 */
+		dwc_eth_qos_res_data.reg_rgmii_io_pads_voltage =
+		   regulator_get_voltage(dwc_eth_qos_res_data.reg_rgmii_io_pads);
+		if (dwc_eth_qos_res_data.reg_rgmii_io_pads_voltage < 0) {
+			EMACERR("Can not read voltage for <%s>\n", EMAC_VREG_RGMII_IO_PADS_NAME);
+			goto reg_error;
+		}
+	}
+
+	/* Enable vreg_rgmii-supply only if vreg_rgmii_io_pads-supply is in 2.5V mode */
+	if (of_property_read_bool(dev->of_node, "vreg_rgmii-supply")
+	    && (dwc_eth_qos_res_data.reg_rgmii_io_pads_voltage == 2500000)) {
+		dwc_eth_qos_res_data.reg_rgmii =
+			devm_regulator_get(dev, EMAC_VREG_RGMII_NAME);
+		if (IS_ERR(dwc_eth_qos_res_data.reg_rgmii)) {
+			EMACERR("Can not get <%s>\n", EMAC_VREG_RGMII_NAME);
+			ret = PTR_ERR(dwc_eth_qos_res_data.reg_rgmii);
+                        goto reg_error;
+		}
+		ret = regulator_enable(dwc_eth_qos_res_data.reg_rgmii);
+		if (ret) {
+			EMACERR("Cannot enable <%s>\n", EMAC_VREG_RGMII_NAME);
 			goto reg_error;
 		}
 	}
@@ -1989,16 +2044,13 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		dev_alert(&pdev->dev, "carrier off till LINK is up\n");
 	}
 
-	if ((EMAC_HW_v2_0_0 == pdata->emac_hw_version_type)
-			|| (EMAC_HW_v2_2_0 == pdata->emac_hw_version_type)){
+	ret = DWC_ETH_QOS_update_rgmii_tx_drv_strength(pdata);
 
-		ret = DWC_ETH_QOS_update_rgmii_tx_drv_strength(pdata);
-
-		if (ret) {
-			EMACERR("Update RGMII tx drv strength failed\n");
-			goto err_out_netdev_failed;
-		}
+	if (ret) {
+		EMACERR("Update RGMII tx drv strength failed\n");
+		goto err_out_netdev_failed;
 	}
+
 	if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
 		create_pps_interrupt_info_device_node(&pdata->avb_class_a_dev_t,
 			&pdata->avb_class_a_cdev, &pdata->avb_class_a_class, AVB_CLASS_A_POLL_DEV_NODE_NAME);
