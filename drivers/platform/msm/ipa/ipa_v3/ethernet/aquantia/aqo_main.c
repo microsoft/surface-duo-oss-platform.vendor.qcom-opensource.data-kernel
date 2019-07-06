@@ -887,6 +887,7 @@ static int aqo_stop_tx(struct ipa_eth_device *eth_dev)
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
 	// TODO: check return status
+	ipa_eth_ep_stop(aqo_dev->ch_tx.eth_ch);
 	aqo_gsi_stop_tx(aqo_dev);
 	aqo_netdev_stop_tx(aqo_dev);
 
@@ -1018,6 +1019,7 @@ static int aqo_stop_rx(struct ipa_eth_device *eth_dev)
 	aqo_netdev_stop_rx(aqo_dev);
 	aqo_proxy_stop(aqo_dev);
 	aqo_gsi_stop_rx(aqo_dev);
+	ipa_eth_ep_stop(aqo_dev->ch_rx.eth_ch);
 
 	aqo_log(aqo_dev, "Stopped Rx offload");
 
