@@ -70,7 +70,7 @@ struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx = {0};
 static struct qmp_pkt pkt;
 static char qmp_buf[MAX_QMP_MSG_SIZE + 1] = {0};
 extern int create_pps_interrupt_info_device_node(dev_t *pps_dev_t,
-	struct cdev* pps_cdev, struct class* pps_class,
+	struct cdev** pps_cdev, struct class** pps_class,
 	char *pps_dev_node_name);
 extern int remove_pps_interrupt_info_device_node(struct DWC_ETH_QOS_prv_data *pdata);
 
@@ -95,39 +95,6 @@ MODULE_PARM_DESC(phy_interrupt_en,
 
 struct ip_params pparams = {0};
 #ifdef DWC_ETH_QOS_BUILTIN
-/*!
- * \brief API to extract MAC Address from given string
- *
- * \param[in] pointer to MAC Address string
- *
- * \return None
- */
-void DWC_ETH_QOS_extract_macid(char *mac_addr)
-{
-	char *input = NULL;
-	int i = 0;
-	UCHAR mac_id = 0;
-	int ret;
-
-	if (!mac_addr)
-		return;
-
-	/* Extract MAC ID byte by byte */
-	input = strsep(&mac_addr, ":");
-	while(input != NULL && i < DWC_ETH_QOS_MAC_ADDR_LEN) {
-		sscanf(input, "%x", &mac_id);
-		pparams.mac_addr[i++] = mac_id;
-		input = strsep(&mac_addr, ":");
-	}
-	if (!is_valid_ether_addr(pparams.mac_addr)) {
-		EMACERR("Invalid Mac address programmed: %s\n", mac_addr);
-		return;
-	} else
-		pparams.is_valid_mac_addr = true;
-
-	return;
-}
-
 static int __init set_early_ethernet_ipv4(char *ipv4_addr_in)
 {
 	int ret = 1;
@@ -177,17 +144,25 @@ __setup("eipv6=", set_early_ethernet_ipv6);
 static int __init set_early_ethernet_mac(char* mac_addr)
 {
 	int ret = 1;
-	char temp_mac_addr[DWC_ETH_QOS_MAC_ADDR_STR_LEN];
-	pparams.is_valid_mac_addr = false;
+	bool valid_mac = false;
 
+	pparams.is_valid_mac_addr = false;
 	if(!mac_addr)
 		return ret;
 
-	strncpy(temp_mac_addr, mac_addr, sizeof(temp_mac_addr));
-	EMACDBG("Early ethernet MAC address assigned: %s\n", temp_mac_addr);
-	temp_mac_addr[DWC_ETH_QOS_MAC_ADDR_STR_LEN-1] = '\0';
+	valid_mac = mac_pton(mac_addr, pparams.mac_addr);
+	if(!valid_mac)
+		goto fail;
 
-	DWC_ETH_QOS_extract_macid(temp_mac_addr);
+	valid_mac = is_valid_ether_addr(pparams.mac_addr);
+	if (!valid_mac)
+		goto fail;
+
+	pparams.is_valid_mac_addr = true;
+	return ret;
+
+fail:
+	EMACERR("Invalid Mac address programmed: %s\n", mac_addr);
 	return ret;
 }
 __setup("ermac=", set_early_ethernet_mac);
@@ -1744,7 +1719,7 @@ int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *pdata)
 	if (ret)
 		EMACERR( "Can't setup IPv4 address!: %d\r\n", ret);
 	else
-		EMACDBG("Assigned IPv4 address: %s\r\n", ip_info->ipv4_addr_str);
+		EMACINFO("Assigned IPv4 address: %s\r\n", ip_info->ipv4_addr_str);
 #endif
 	return ret;
 }
@@ -2026,10 +2001,10 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 	}
 	if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
 		create_pps_interrupt_info_device_node(&pdata->avb_class_a_dev_t,
-			pdata->avb_class_a_cdev, pdata->avb_class_a_class, AVB_CLASS_A_POLL_DEV_NODE_NAME);
+			&pdata->avb_class_a_cdev, &pdata->avb_class_a_class, AVB_CLASS_A_POLL_DEV_NODE_NAME);
 
 		create_pps_interrupt_info_device_node(&pdata->avb_class_b_dev_t,
-			pdata->avb_class_b_cdev ,pdata->avb_class_b_class, AVB_CLASS_B_POLL_DEV_NODE_NAME);
+			&pdata->avb_class_b_cdev ,&pdata->avb_class_b_class, AVB_CLASS_B_POLL_DEV_NODE_NAME);
 	}
 
 	if ((EMAC_HW_v2_0_0 == pdata->emac_hw_version_type)
@@ -2600,7 +2575,7 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
 
-	EMACDBG("<--DWC_ETH_QOS_resume\n");
+	EMACINFO("<--DWC_ETH_QOS_resume done\n");
 
 	return ret;
 }

@@ -48,7 +48,7 @@ static int proxy_init_uc(struct aqo_device *aqo_dev)
 		return -EFAULT;
 	}
 
-	uc_ctx->aqc_ch = AQO_ETHDEV(aqo_dev)->ch_rx->queue;
+	uc_ctx->aqc_ch = aqo_dev->ch_rx.eth_ch->queue;
 	uc_ctx->gsi_ch = aqo_dev->ch_rx.gsi_ch;
 
 	if (!uc_ctx->msi_addr.daddr) {
@@ -182,6 +182,9 @@ static int proxy_init_host(struct aqo_device *aqo_dev)
 {
 	struct aqo_proxy_host_context *host_ctx =
 		&aqo_dev->ch_rx.proxy.host_ctx;
+	struct ipa_eth_channel *ch = aqo_dev->ch_rx.eth_ch;
+	struct ipa_eth_channel_mem *desc = list_first_entry(
+		&ch->desc_mem, struct ipa_eth_channel_mem, mem_list_entry);
 
 	host_ctx->msi_addr.size = 4;
 	host_ctx->msi_addr.daddr = dma_map_resource(AQO_DEV(aqo_dev),
@@ -192,15 +195,15 @@ static int proxy_init_host(struct aqo_device *aqo_dev)
 	/* Needed for head-pointer mode operation */
 	host_ctx->aqc_base = aqo_dev->regs_base.vaddr;
 	host_ctx->aqc_hp = AQC_RX_HEAD_PTR(host_ctx->aqc_base,
-				AQO_ETHDEV(aqo_dev)->ch_rx->queue);
+				aqo_dev->ch_rx.eth_ch->queue);
 	host_ctx->gsi_db = ioremap_nocache(aqo_dev->ch_rx.gsi_db.paddr, 4);
 
 	aqo_log_dbg(aqo_dev, "Mapped GSI DB at %pa to %px",
-			aqo_dev->ch_rx.gsi_db.paddr, host_ctx->gsi_db);
+			&aqo_dev->ch_rx.gsi_db.paddr, host_ctx->gsi_db);
 
-	host_ctx->desc_dbase = AQO_ETHDEV(aqo_dev)->ch_rx->desc_mem.daddr;
-	host_ctx->desc_vbase = AQO_ETHDEV(aqo_dev)->ch_rx->desc_mem.vaddr;
-	host_ctx->max_head = AQO_ETHDEV(aqo_dev)->ch_rx->desc_count - 1;
+	host_ctx->desc_dbase = desc->mem.daddr;
+	host_ctx->desc_vbase = desc->mem.vaddr;
+	host_ctx->max_head = ch->mem_params.desc.count - 1;
 
 	/* Needed for counter mode operation */
 	host_ctx->counter = readl_relaxed(host_ctx->gsi_db);

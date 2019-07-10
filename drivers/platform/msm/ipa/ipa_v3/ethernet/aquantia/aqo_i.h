@@ -14,6 +14,8 @@
 #define __AQO_I_H__
 
 #include <linux/pci.h>
+
+#define IPA_ETH_OFFLOAD_DRIVER
 #include <linux/ipa_eth.h>
 
 #include "aqo_regs.h"
@@ -33,17 +35,40 @@
   #error "CONFIG_AQC_IPA_PROXY_* not set"
 #endif
 
-#define AQO_GSI_DEFAULT_RX_MODC 1
-#define AQO_GSI_DEFAULT_RX_MODT 1
+#define AQO_GSI_MODC_MIN 0
+#define AQO_GSI_MODC_MAX (BIT(8) - 1)
+#define AQO_GSI_DEFAULT_RX_MODC 0
+#define AQO_GSI_DEFAULT_TX_MODC 0
 
-#define AQO_GSI_DEFAULT_TX_MODC 1
-#define AQO_GSI_DEFAULT_TX_MODT 1
+#define AQO_GSI_MODT_MIN 0
+#define AQO_GSI_MODT_MAX (BIT(16) - 1)
+/* GSI moderation timer is defined in number of cycles where 32 cycles = 1 ms */
+#define AQO_GSI_DEFAULT_RX_MODT 32
+#define AQO_GSI_DEFAULT_TX_MODT 32
 
-#define AQO_MIN_RX_MOD_USECS 0
-#define AQO_MAX_RX_MOD_USECS 500000
-#define AQO_DEFAULT_RX_MOD_USECS 500
+#define AQO_AQC_RX_INT_MOD_USECS_MIN 0
+#define AQO_AQC_RX_INT_MOD_USECS_MAX 511
+#define AQO_AQC_RX_INT_MOD_USECS_DEFAULT 250
 
-#define AQO_PCI_DIRECT_MASK (1ULL << 40)
+#define AQO_GSI_TX_WRB_MODC_MIN 0
+#define AQO_GSI_TX_WRB_MODC_MAX (BIT_ULL(32) - 1)
+#define AQO_GSI_TX_WRB_MODC_DEFAULT 0
+
+#define AQO_AQC_RING_SZ_MIN 8
+#define AQO_AQC_RING_SZ_MAX 8192
+#define AQO_AQC_RING_SZ_ALIGN 8
+#define AQO_AQC_RING_SZ_DEFAULT 128
+
+#define AQO_AQC_BUFF_SZ_MIN 1024
+#define AQO_AQC_BUFF_SZ_MAX 16384
+#define AQO_AQC_BUFF_SZ_ALIGN 1024
+#define AQO_AQC_BUFF_SZ_DEFAULT 2048
+
+#define AQO_GSI_RING_SZ_MIN 1
+#define AQO_GSI_RING_SZ_MAX (BIT(12) - 1)
+#define AQO_GSI_RING_SZ_ALIGN 1
+
+#define AQO_PCI_DIRECT_MASK BIT_ULL(40)
 #define AQO_PCI_DIRECT_SET(val) (val | AQO_PCI_DIRECT_MASK)
 #define AQO_PCI_DIRECT_CLEAR(val) (val & ~AQO_PCI_DIRECT_MASK)
 
@@ -108,11 +133,16 @@ struct aqo_proxy {
 struct aqo_channel {
 	struct aqo_proxy proxy;
 
+	u32 ring_size;
+	u32 buff_size;
+
 	u8 gsi_ch;
 	struct ipa_eth_resource gsi_db;
 
 	u32 gsi_modc;
 	u32 gsi_modt;
+
+	struct ipa_eth_channel *eth_ch;
 };
 
 struct aqo_device {
@@ -124,7 +154,9 @@ struct aqo_device {
 	struct aqo_channel ch_rx;
 	struct aqo_channel ch_tx;
 
-	u32 rx_mod_usecs;
+	u32 rx_int_mod_usecs;
+	u32 tx_wrb_mod_count;
+
 	bool pci_direct;
 };
 
