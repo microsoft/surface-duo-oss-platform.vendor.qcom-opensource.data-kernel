@@ -869,7 +869,8 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 	}
 
 	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_3_1 ||
-		dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2)
+		dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_1_2 ||
+		dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_2_0 )
 		dwc_eth_qos_res_data.pps_lpass_conn_en = true;
 
 	if (dwc_eth_qos_res_data.emac_hw_version_type == EMAC_HW_v2_3_1) {
