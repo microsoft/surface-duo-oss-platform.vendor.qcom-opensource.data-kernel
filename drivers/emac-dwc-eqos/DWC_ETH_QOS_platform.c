@@ -55,10 +55,13 @@ void *ipc_emac_log_ctxt;
 #define EMAC_36_BIT_ADDRESSING 36
 #define EMAC_64_BIT_ADDRESSING 64
 
+#define MAC_ADDR_CFG_FPATH "/data/emac_config.ini"
 
-static UCHAR dev_addr[6] = {0, 0x55, 0x7b, 0xb5, 0x7d, 0xf7};
+static UCHAR dev_addr[ETH_ALEN] = {0, 0x55, 0x7b, 0xb5, 0x7d, 0xf7};
 struct DWC_ETH_QOS_res_data dwc_eth_qos_res_data = {0, };
 static struct msm_bus_scale_pdata *emac_bus_scale_vec = NULL;
+
+UCHAR config_dev_addr[ETH_ALEN];
 
 ULONG dwc_eth_qos_base_addr;
 ULONG dwc_rgmii_io_csr_base_addr;
@@ -1787,6 +1790,47 @@ int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *pdata)
 	return ret;
 }
 
+/*!
+ * \brief Parse the config file to obtain the MAC address
+ *
+ * \param[in] None
+ *
+ * \return None
+ *
+ */
+
+static void DWC_ETH_QOS_read_mac_addr_from_config(void)
+{
+	int ret = -ENOENT;
+	void *data = NULL;
+	char *file_path = MAC_ADDR_CFG_FPATH;
+	loff_t size = 0;
+	loff_t max_size = 30;
+
+	EMACDBG("Enter\n");
+
+	ret = kernel_read_file_from_path(file_path, &data, &size,
+				max_size, READING_POLICY);
+
+	if (ret < 0) {
+		EMACINFO("unable to open file: %s (%d)\n", file_path, ret);
+		goto ret;
+	}
+
+	if (!mac_pton(data, config_dev_addr) && !is_valid_ether_addr(config_dev_addr)) {
+		EMACERR("Invalid mac addr found in emac_config.ini\n");
+		goto ret;
+	}
+
+	EMACDBG("mac address read from config.ini successfully\n");
+	ether_addr_copy(dev_addr, config_dev_addr);
+
+ret:
+	if (data)
+		vfree(data);
+	return;
+}
+
 static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 {
 	struct DWC_ETH_QOS_prv_data *pdata = NULL;
@@ -1814,6 +1858,8 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 
 	if (pparams.is_valid_mac_addr == true)
 		ether_addr_copy(dev_addr, pparams.mac_addr);
+	else
+		DWC_ETH_QOS_read_mac_addr_from_config();
 
 	dev->dev_addr[0] = dev_addr[0];
 	dev->dev_addr[1] = dev_addr[1];
