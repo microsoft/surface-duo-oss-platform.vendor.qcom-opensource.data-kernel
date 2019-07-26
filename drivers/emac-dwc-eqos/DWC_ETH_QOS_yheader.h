@@ -1590,6 +1590,7 @@ struct DWC_ETH_QOS_res_data {
 	bool is_pinctrl_names;
 	int gpio_phy_intr_redirect;
 	int gpio_phy_reset;
+        int phy_reset_delay_msecs;
 
 	/* Regulators */
 	struct regulator *gdsc_emac;
