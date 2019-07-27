@@ -1596,6 +1596,7 @@ struct DWC_ETH_QOS_res_data {
 	struct regulator *reg_rgmii;
 	struct regulator *reg_emac_phy;
 	struct regulator *reg_rgmii_io_pads;
+        int reg_rgmii_io_pads_voltage;
 
 	/* Clocks */
 	struct clk *axi_clk;
