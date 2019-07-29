@@ -936,6 +936,14 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 		EMACDBG("qcom,pinctrl-names present\n");
 	}
 
+	//read qcom,phy-reset-delay-msecs value from dtsi
+	if (of_property_read_u32(
+		pdev->dev.of_node,"qcom,phy-reset-delay-msecs",
+		&dwc_eth_qos_res_data.phy_reset_delay_msecs)) {
+		//resource qcom,phy-reset-delay-msecs is not present, set delay to 1ms
+		dwc_eth_qos_res_data.phy_reset_delay_msecs = 1;
+	}
+
 	return ret;
 
 err_out:
@@ -1671,7 +1679,7 @@ static int DWC_ETH_QOS_init_gpios(struct device *dev)
 					EMAC_GPIO_PHY_RESET_NAME);
 			goto gpio_error;
 		}
-		mdelay(1);
+		mdelay(dwc_eth_qos_res_data.phy_reset_delay_msecs);
 
 		gpio_set_value(dwc_eth_qos_res_data.gpio_phy_reset, PHY_RESET_GPIO_HIGH);
 		EMACDBG("PHY is out of reset successfully\n");
