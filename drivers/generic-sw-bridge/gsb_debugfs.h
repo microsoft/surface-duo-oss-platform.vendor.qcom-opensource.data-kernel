@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved. */
 /*
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,64 +30,46 @@ static atomic_t unload_flag = ATOMIC_INIT(0);
 /*
  * Debug output verbosity level.
  */
-#define DEBUG_LEVEL 5
+#define DEBUG_LEVEL 2
 
 #if (DEBUG_LEVEL < 1)
-#define DEBUG_ERROR(s, ...)
+#define DEBUG_ERROR(s, args...)
 #else
-#define DEBUG_ERROR(s, ...) \
+#define DEBUG_ERROR(s, args...) \
 do { \
-	printk("%s[%u]:[GSB] ERROR: ", __func__,__LINE__); \
-	printk(s, ##__VA_ARGS__); \
+	pr_err("GSB_ERR %s[%d]" s, __func__, __LINE__, ## args);\
 	if (ipc_gsb_log_ctxt) { \
 		ipc_log_string(ipc_gsb_log_ctxt, \
 		"%s: %s[%u]:[GSB] ERROR:" s, __FILENAME__ , \
-		__func__, __LINE__, ##__VA_ARGS__); \
+		__func__, __LINE__, ## args); \
 		} \
 } while (0)
 #endif
 
 #if (DEBUG_LEVEL < 2)
-#define DEBUG_WARN(s, ...)
+#define DEBUG_INFO(s, args...)
 #else
-#define DEBUG_WARN(s, ...) \
+#define DEBUG_INFO(s, args...) \
 do { \
-	printk("%s[%u] GSB:", __func__,__LINE__); \
-	printk(s, ##__VA_ARGS__); \
+	pr_info("GSB_INFO %s[%d]" s, __func__, __LINE__, ## args);\
 	if (ipc_gsb_log_ctxt) { \
 		ipc_log_string(ipc_gsb_log_ctxt, \
-		"%s: %s[%u]: GSB:" s, __FILENAME__ , \
-		__func__, __LINE__, ##__VA_ARGS__); \
+		"%s: %s[%u]:[GSB] INFO:" s, __FILENAME__ , \
+		__func__, __LINE__, ## args); \
 		} \
 } while (0)
 #endif
 
 #if (DEBUG_LEVEL < 3)
-#define DEBUG_INFO(s, ...)
+#define DEBUG_TRACE(s, args...)
 #else
-#define DEBUG_INFO(s, ...) \
+#define DEBUG_TRACE(s, args...) \
 do { \
-	printk("%s[%u][GSB]:", __func__,__LINE__); \
-	printk(s, ##__VA_ARGS__); \
-	if (ipc_gsb_log_ctxt) { \
-		ipc_log_string(ipc_gsb_log_ctxt, \
-		"%s: %s[%u]: GSB:" s, __FILENAME__ , \
-		__func__, __LINE__, ##__VA_ARGS__); \
-		} \
-} while (0)
-#endif
-
-#if (DEBUG_LEVEL < 5)
-#define DEBUG_TRACE(s, ...)
-#else
-#define DEBUG_TRACE(s, ...) \
-do { \
-	printk("%s[%u]:", __func__,__LINE__); \
-	printk(s, ##__VA_ARGS__); \
-	if (ipc_gsb_log_ctxt) { \
-		ipc_log_string(ipc_gsb_log_ctxt, \
-		"%s: %s[%u]: TRACE:" s, __FILENAME__ , \
-		__func__, __LINE__, ##__VA_ARGS__); \
+	pr_info("GSB_TRACE %s[%d]" s, __func__, __LINE__, ## args);\
+	if (ipc_gsb_log_ctxt_low) { \
+		ipc_log_string(ipc_gsb_log_ctxt_low, \
+		"%s: %s[%u]:[GSB] TRACE:" s, __FILENAME__ , \
+		__func__, __LINE__, ## args); \
 		} \
 } while (0)
 #endif

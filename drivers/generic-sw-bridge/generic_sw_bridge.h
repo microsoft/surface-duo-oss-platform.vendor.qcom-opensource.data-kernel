@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved. */
 /*
  *
  * This program is free software; you can redistribute it and/or modify
@@ -31,7 +31,6 @@
 
 #define PACKET_DUMP_BUFFER 200
 #define PACKET_MP_PRINT_LEN 100
-#define READ_STATS_OFFSET 5
 #define TAG_LENGTH 4
 #define MAX_PACKETS_TO_SEND 40
 

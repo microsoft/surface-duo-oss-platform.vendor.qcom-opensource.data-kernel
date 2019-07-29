@@ -414,7 +414,7 @@ static  ssize_t gsb_read_stats(struct file *file,
 	char file_name[PATH_MAX];
 	struct gsb_ctx *pgsb_ctx = __gc;
 	struct gsb_if_info *if_info = NULL;
-	char *raw_path = NULL;
+	char *dentry = NULL;
 
 	if (IS_ERR_OR_NULL(pgsb_ctx))
 	{
@@ -422,17 +422,16 @@ static  ssize_t gsb_read_stats(struct file *file,
 		return ret_cnt;
 	}
 
-	raw_path = dentry_path_raw(file->f_path.dentry, file_name, PATH_MAX);
-	IPC_INFO_LOW("rawpath  is %s\n", raw_path);
-	if (IS_ERR_OR_NULL(raw_path))
+	dentry = file->f_path.dentry->d_iname;
+	if (dentry == NULL)
 	{
-		DEBUG_ERROR("NULL path found\n");
+		DEBUG_ERROR("No IF directory found\n");
 		return ret_cnt;
 	}
-
+	IPC_INFO_LOW("interface is %s\n", dentry);
 
 	spin_lock_bh(&pgsb_ctx->gsb_lock);
-	if_info = get_node_info_from_ht(raw_path + READ_STATS_OFFSET);
+	if_info = get_node_info_from_ht(dentry);
 	spin_unlock_bh(&pgsb_ctx->gsb_lock);
 
 	if (IS_ERR_OR_NULL(if_info))
@@ -617,16 +616,23 @@ static int create_debugfs_dir_for_if(struct gsb_if_info *if_info)
 		DEBUG_ERROR("NULL if Context passed\n");
 		return -EFAULT;
 	}
-
-	if_info->dbg_dir_if = debugfs_create_file(if_info->if_name, S_IRUSR, pgsb_ctx->dbg_dir_root,
-						  pgsb_ctx, &debug_fops);
-	if (IS_ERR_OR_NULL(if_info->dbg_dir_if))
+	if (!if_info->is_debugfs_init)
 	{
-		DEBUG_ERROR("Could not create debugfs dir for if %s\n",
-				if_info->if_name);
-		return -EFAULT;
+		if_info->dbg_dir_if = debugfs_create_file(if_info->if_name, S_IRUSR, pgsb_ctx->dbg_dir_root,
+							  pgsb_ctx, &debug_fops);
+		if (IS_ERR_OR_NULL(if_info->dbg_dir_if))
+		{
+			DEBUG_ERROR("Could not create debugfs dir for if %s\n",
+					if_info->if_name);
+			return -EFAULT;
+		}
+		if_info->is_debugfs_init = true;
 	}
-	if_info->is_debugfs_init = true;
+	else
+	{
+		DEBUG_INFO("debugfs entry already present for IF %s\n",
+					if_info->if_name);
+	}
 	return 0;
 }
 
@@ -772,6 +778,7 @@ static int cleanup_entries_from_ht(void)
 		spin_unlock_bh(&pgsb_ctx->gsb_lock);
 
 		remove_debugfs_dir_for_if(curr->dbg_dir_if);
+		curr->is_debugfs_init = false;
 
 		if (curr->is_ipa_bridge_initialized && ipa_bridge_cleanup(curr->handle) != 0)
 		{
@@ -1426,6 +1433,7 @@ static long gsb_ioctl(struct file *filp,
 		if (info != NULL)
 		{
 			remove_debugfs_dir_for_if(info->dbg_dir_if);
+			info->is_debugfs_init = false;
 		}
 		else
 		{
