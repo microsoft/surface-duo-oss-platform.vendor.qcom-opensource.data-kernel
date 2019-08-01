@@ -37534,7 +37534,14 @@
 
 #define TLMM_BASE_ADDRESS (tlmm_central_base_addr)
 
-#define TLMM_RGMII_HDRV_PULL_CTL1_ADDRESS ((volatile ULONG *) (TLMM_BASE_ADDRESS + 0xA5000))
+#define TLMM_RGMII_HDRV_PULL_CTL1_ADDRESS_OFFSET\
+                     ((  (pdata->emac_hw_version_type == EMAC_HW_v2_3_2) ? 0xA7000\
+                         : (pdata->emac_hw_version_type == EMAC_HW_v2_0_0) ? 0xA5000\
+                         : (pdata->emac_hw_version_type == EMAC_HW_v2_2_0) ? 0xA5000\
+                         : 0))
+
+#define TLMM_RGMII_HDRV_PULL_CTL1_ADDRESS\
+                     ((volatile ULONG *)(TLMM_BASE_ADDRESS + TLMM_RGMII_HDRV_PULL_CTL1_ADDRESS_OFFSET))
 
 #define TLMM_RGMII_HDRV_PULL_CTL1_RGWR(data) do {\
 		iowrite32(data, (void *)TLMM_RGMII_HDRV_PULL_CTL1_ADDRESS);\
@@ -37573,6 +37580,24 @@
 		v = (v & (TLMM_RGMII_HDRV_PULL_CTL1_TX_0_HDRV_WR_MASK_3)) | (((data) & (TLMM_RGMII_HDRV_PULL_CTL1_HDRV_MASK)) << 3);\
 		v = (v & (TLMM_RGMII_HDRV_PULL_CTL1_CTL_TX_HDRV_WR_MASK_0)) | (((ctl) & (TLMM_RGMII_HDRV_PULL_CTL1_HDRV_MASK)) << 0);\
 		TLMM_RGMII_HDRV_PULL_CTL1_RGWR(v);\
+} while (0)
+
+
+#define TLMM_RGMII_RX_HV_MODE_CTL_ADDRESS_OFFSET \
+                     ((  (pdata->emac_hw_version_type == EMAC_HW_v2_3_2) ? 0xA7004\
+                         : (pdata->emac_hw_version_type == EMAC_HW_v2_0_0) ? 0xA5004\
+                         : (pdata->emac_hw_version_type == EMAC_HW_v2_2_0) ? 0xA5004\
+                         : 0))
+
+#define TLMM_RGMII_RX_HV_MODE_CTL_ADDRESS\
+                     ((volatile ULONG *)(TLMM_BASE_ADDRESS + TLMM_RGMII_RX_HV_MODE_CTL_ADDRESS_OFFSET))\
+
+#define TLMM_RGMII_RX_HV_MODE_CTL_RGWR(data) do {\
+		iowrite32(data, (void *)TLMM_RGMII_RX_HV_MODE_CTL_ADDRESS);\
+} while (0)
+
+#define TLMM_RGMII_RX_HV_MODE_CTL_RGRD(data) do {\
+		(data) = ioread32((void *)TLMM_RGMII_RX_HV_MODE_CTL_ADDRESS);\
 } while (0)
 
 #endif
