@@ -305,17 +305,17 @@ bool aqo_proxy_valid(struct aqo_device *aqo_dev)
 {
 	enum aqo_proxy_agent agent = aqo_dev->ch_rx.proxy.agent;
 
-	if (proxy_ops[agent].valid)
+	if (agent < AQO_PROXY_MAX_AGENTS && proxy_ops[agent].valid)
 		return proxy_ops[agent].valid(aqo_dev);
 
-	return true;
+	return false;
 }
 
 int aqo_proxy_init(struct aqo_device *aqo_dev)
 {
 	enum aqo_proxy_agent agent = aqo_dev->ch_rx.proxy.agent;
 
-	if (proxy_ops[agent].init)
+	if (agent < AQO_PROXY_MAX_AGENTS && proxy_ops[agent].init)
 		return proxy_ops[agent].init(aqo_dev);
 
 	aqo_log_err(aqo_dev,
@@ -328,7 +328,7 @@ int aqo_proxy_start(struct aqo_device *aqo_dev)
 {
 	enum aqo_proxy_agent agent = aqo_dev->ch_rx.proxy.agent;
 
-	if (proxy_ops[agent].start)
+	if (agent < AQO_PROXY_MAX_AGENTS && proxy_ops[agent].start)
 		return proxy_ops[agent].start(aqo_dev);
 
 	aqo_log_err(aqo_dev,
@@ -341,7 +341,7 @@ int aqo_proxy_stop(struct aqo_device *aqo_dev)
 {
 	enum aqo_proxy_agent agent = aqo_dev->ch_rx.proxy.agent;
 
-	if (proxy_ops[agent].stop)
+	if (agent < AQO_PROXY_MAX_AGENTS && proxy_ops[agent].stop)
 		return proxy_ops[agent].stop(aqo_dev);
 
 	aqo_log_err(aqo_dev,
@@ -354,7 +354,7 @@ int aqo_proxy_deinit(struct aqo_device *aqo_dev)
 {
 	enum aqo_proxy_agent agent = aqo_dev->ch_rx.proxy.agent;
 
-	if (proxy_ops[agent].deinit)
+	if (agent < AQO_PROXY_MAX_AGENTS && proxy_ops[agent].deinit)
 		return proxy_ops[agent].deinit(aqo_dev);
 
 	aqo_log_err(aqo_dev,
