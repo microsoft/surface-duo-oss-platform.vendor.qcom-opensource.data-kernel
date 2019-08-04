@@ -33,11 +33,26 @@ static const char aqo_driver_name[] = AQO_DRIVER_NAME;
 static const u32 PCI_VENDOR_ID_AQUANTIA = 0x1d6a;
 
 static const struct pci_device_id aquantia_pci_ids[] = {
+	{ PCI_VDEVICE(AQUANTIA, 0x0001), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0xd107), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x07b1), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x87b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0xd108), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x08b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x88b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0xd109), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x09b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x89b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0xd100), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x00b1), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x80b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x11b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x91b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x51b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x12b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x92b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x52b1), 0 },
+	{}
 };
 
 static const struct of_device_id aquantia_of_matches[] = {
