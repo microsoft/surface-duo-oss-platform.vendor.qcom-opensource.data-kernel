@@ -1,7 +1,7 @@
 
-obj-$(CONFIG_AQC_IPA) += aqc-ipa.o
+obj-m += aqc_ipa_offload.o
 
-aqc-ipa-y := aqo_main.o \
+aqc_ipa_offload-y := aqo_main.o \
 		aqo_debugfs.o \
 		aqo_gsi.o \
 		aqo_netdev.o \
