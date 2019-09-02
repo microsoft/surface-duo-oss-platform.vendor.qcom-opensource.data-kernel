@@ -94,37 +94,106 @@ module_param(phy_interrupt_en, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(phy_interrupt_en,
 		"Enable PHY interrupt [0-DISABLE, 1-ENABLE]");
 
-struct ip_params pparams = {"", "", "", ""};
-static int __init set_early_ethernet_ipv4(char *str)
+struct ip_params pparams = {0};
+#ifdef DWC_ETH_QOS_BUILTIN
+/*!
+ * \brief API to extract MAC Address from given string
+ *
+ * \param[in] pointer to MAC Address string
+ *
+ * \return None
+ */
+void DWC_ETH_QOS_extract_macid(char *mac_addr)
 {
-	if (str) {
-		strncpy(pparams.ip_addr, str, sizeof(pparams.ip_addr));
-		EMACDBG("Early ethernet IPv4 addr assigned: %s\n", pparams.ip_addr);
+	char *input = NULL;
+	int i = 0;
+	UCHAR mac_id = 0;
+	int ret;
+
+	if (!mac_addr)
+		return;
+
+	/* Extract MAC ID byte by byte */
+	input = strsep(&mac_addr, ":");
+	while(input != NULL && i < DWC_ETH_QOS_MAC_ADDR_LEN) {
+		sscanf(input, "%x", &mac_id);
+		pparams.mac_addr[i++] = mac_id;
+		input = strsep(&mac_addr, ":");
 	}
-	return 1;
+	if (!is_valid_ether_addr(pparams.mac_addr)) {
+		EMACERR("Invalid Mac address programmed: %s\n", mac_addr);
+		return;
+	} else
+		pparams.is_valid_mac_addr = true;
+
+	return;
+}
+
+static int __init set_early_ethernet_ipv4(char *ipv4_addr_in)
+{
+	int ret = 1;
+	pparams.is_valid_ipv4_addr = false;
+
+	if (!ipv4_addr_in)
+		return ret;
+
+	strlcpy(pparams.ipv4_addr_str, ipv4_addr_in, sizeof(pparams.ipv4_addr_str));
+	EMACDBG("Early ethernet IPv4 addr: %s\n", pparams.ipv4_addr_str);
+
+	ret = in4_pton(pparams.ipv4_addr_str, -1,
+				(u8*)&pparams.ipv4_addr.s_addr, -1, NULL);
+	if (ret != 1 || pparams.ipv4_addr.s_addr == 0) {
+		EMACERR("Invalid ipv4 address programmed: %s\n", ipv4_addr_in);
+		return ret;
+	}
+
+	pparams.is_valid_ipv4_addr = true;
+	return ret;
 }
 __setup("eipv4=", set_early_ethernet_ipv4);
 
-static int __init set_early_ethernet_ipv6(char* ipv6_addr)
+static int __init set_early_ethernet_ipv6(char* ipv6_addr_in)
 {
-	if (ipv6_addr) {
-		strncpy(pparams.ipv6_addr, ipv6_addr, sizeof(pparams.ipv6_addr));
-		EMACDBG("Early ethernet IPv6 addr assigned: %s\n", pparams.ipv6_addr);
+	int ret = 1;
+	pparams.is_valid_ipv6_addr = false;
+
+	if (!ipv6_addr_in)
+		return ret;
+
+	strlcpy(pparams.ipv6_addr_str, ipv6_addr_in, sizeof(pparams.ipv6_addr_str));
+	EMACDBG("Early ethernet IPv6 addr: %s\n", pparams.ipv6_addr_str);
+
+	ret = in6_pton(pparams.ipv6_addr_str, -1,
+				   (u8 *)&pparams.ipv6_addr.ifr6_addr.s6_addr32, -1, NULL);
+	if (ret != 1 || pparams.ipv6_addr.ifr6_addr.s6_addr32 == 0)  {
+		EMACERR("Invalid ipv6 address programmed: %s\n", ipv6_addr_in);
+		return ret;
 	}
-	return 1;
+
+	pparams.is_valid_ipv6_addr = true;
+	return ret;
 }
 __setup("eipv6=", set_early_ethernet_ipv6);
 
 static int __init set_early_ethernet_mac(char* mac_addr)
 {
-	if (mac_addr) {
-		strncpy(pparams.mac_addr, mac_addr, sizeof(pparams.mac_addr));
-		EMACDBG("Early ethernet MAC address assigned: %s\n", pparams.mac_addr);
-		pparams.mac_addr[17] = '\0';
-	}
-	return 1;
+	int ret = 1;
+	char temp_mac_addr[DWC_ETH_QOS_MAC_ADDR_STR_LEN];
+	pparams.is_valid_mac_addr = false;
+
+	if(!mac_addr)
+		return ret;
+
+	strlcpy(temp_mac_addr, mac_addr, sizeof(temp_mac_addr));
+	EMACDBG("Early ethernet MAC address assigned: %s\n", temp_mac_addr);
+	temp_mac_addr[DWC_ETH_QOS_MAC_ADDR_STR_LEN-1] = '\0';
+
+	DWC_ETH_QOS_extract_macid(temp_mac_addr);
+	return ret;
 }
 __setup("ermac=", set_early_ethernet_mac);
+#endif
+
 static ssize_t read_phy_reg_dump(struct file *file,
 	char __user *user_buf, size_t count, loff_t *ppos)
 {
@@ -812,9 +881,15 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 	}
 
 	dwc_eth_qos_res_data.early_eth_en = 0;
-	if (of_property_read_bool(pdev->dev.of_node, "early-ethernet-en"))
+	if(pparams.is_valid_mac_addr &&
+	   (pparams.is_valid_ipv4_addr || pparams.is_valid_ipv6_addr)) {
+		/* For 1000BASE-T mode, auto-negotiation is required and
+			always used to establish a link.
+			Configure phy and MAC in 100Mbps mode with autoneg disable
+			as link up takes more time with autoneg enabled  */
 		dwc_eth_qos_res_data.early_eth_en = 1;
-	EMACDBG("Early Ethernet EN: %d\n", dwc_eth_qos_res_data.early_eth_en);
+		EMACINFO("Early ethernet is enabled\n");
+	}
 
 	ret = DWC_ETH_QOS_get_io_macro_config(pdev);
 	if (ret)
@@ -1532,55 +1607,93 @@ static struct of_device_id DWC_ETH_QOS_plat_drv_match[] = {
 	{}
 };
 
-int DWC_ETH_QOS_add_ipaddr(struct ip_params *ip_info, struct net_device *dev)
+void is_ipv6_NW_stack_ready(struct work_struct *work)
 {
-	int res=0;
+	struct delayed_work *dwork;
+	struct DWC_ETH_QOS_prv_data *pdata;
+	int ret;
+
+	EMACDBG("\n");
+	dwork = container_of(work, struct delayed_work, work);
+	pdata = container_of(dwork, struct DWC_ETH_QOS_prv_data, ipv6_addr_assign_wq);
+
+	ret = DWC_ETH_QOS_add_ipv6addr(pdata);
+	if (ret)
+		return;
+
+	cancel_delayed_work_sync(&pdata->ipv6_addr_assign_wq);
+	flush_delayed_work(&pdata->ipv6_addr_assign_wq);
+	return;
+}
+
+int DWC_ETH_QOS_add_ipv6addr(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	int ret = -EFAULT;;
 #ifdef DWC_ETH_QOS_BUILTIN
-	struct ifreq ir;
 	struct in6_ifreq ir6;
-	struct sockaddr_in *sin = (void *) &ir.ifr_ifru.ifru_addr;
 	char* prefix;
+	struct ip_params *ip_info = &pparams;
+	struct net *net = dev_net(pdata->dev);
+
+	EMACDBG("\n");
+	if (!net || !net->genl_sock || !net->genl_sock->sk_socket)
+		EMACERR("Sock is null, unable to assign ipv6 address\n");
+
+	if (!net->ipv6.devconf_dflt) {
+		EMACDBG("ipv6.devconf_dflt is null, schedule wq\n");
+		schedule_delayed_work(&pdata->ipv6_addr_assign_wq, msecs_to_jiffies(1000));
+		return ret;
+	}
+
+	/*For valid IPv6 address*/
+	memset(&ir6, 0, sizeof(ir6));
+	memcpy(&ir6, &ip_info->ipv6_addr, sizeof(struct in6_ifreq));
+	ir6.ifr6_ifindex = pdata->dev->ifindex;
+
+	if ((prefix = strchr(ip_info->ipv6_addr_str, '/')) == NULL)
+		ir6.ifr6_prefixlen = 0;
+	else {
+		ir6.ifr6_prefixlen = simple_strtoul(prefix + 1, NULL, 0);
+		if (ir6.ifr6_prefixlen > 128)
+			ir6.ifr6_prefixlen = 0;
+	}
+
+	ret = inet6_ioctl(net->genl_sock->sk_socket, SIOCSIFADDR, (unsigned long)(void *)&ir6);
+	if (ret)
+		EMACERR("Can't setup IPv6 address!\r\n");
+	else
+		EMACDBG("Assigned IPv6 address: %s\r\n", ip_info->ipv6_addr_str);
+#endif
+	return ret;
+}
+
+int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *pdata)
+{
+	int ret=0;
+#ifdef DWC_ETH_QOS_BUILTIN
+	struct ip_params *ip_info = &pparams;
+	struct ifreq ir;
+	struct sockaddr_in *sin = (void *) &ir.ifr_ifru.ifru_addr;
+	struct net *net = dev_net(pdata->dev);
+
+	if (!net || !net->genl_sock || !net->genl_sock->sk_socket)
+		EMACERR("Sock is null, unable to assign ipv4 address\n");
 
 	/*For valid Ipv4 address*/
 	memset(&ir, 0, sizeof(ir));
-	if (1 == in4_pton(ip_info->ip_addr, -1, (u8*)&sin->sin_addr.s_addr, -1, NULL)) {
-		strcpy(ir.ifr_ifrn.ifrn_name, dev->name);
-		sin->sin_family = AF_INET;
-		sin->sin_port = 0;
-		res = devinet_ioctl(&init_net, SIOCSIFADDR, (struct ifreq __user *) &ir);
-		if (res)
-			EMACERR( "Can't setup IPv4 address!: %d\r\n", res);
-		else
-			EMACDBG("Assigned IPv4 address: %s\r\n", ip_info->ip_addr);
-	}
+	memcpy(&sin->sin_addr.s_addr, &ip_info->ipv4_addr,
+		   sizeof(sin->sin_addr.s_addr));
+	strlcpy(ir.ifr_ifrn.ifrn_name, pdata->dev->name, sizeof(ir.ifr_ifrn.ifrn_name) + 1);
+	sin->sin_family = AF_INET;
+	sin->sin_port = 0;
+
+	ret = inet_ioctl(net->genl_sock->sk_socket, SIOCSIFADDR, (unsigned long)(void *)&ir);
+	if (ret)
+		EMACERR( "Can't setup IPv4 address!: %d\r\n", ret);
+	else
+		EMACDBG("Assigned IPv4 address: %s\r\n", ip_info->ipv4_addr_str);
 #endif
-	return res;
-}
-
-/*!
- * \brief API to extract MAC Address from given string
- *
- * \param[in] pointer to MAC Address string
- *
- * \return None
- */
-void DWC_ETH_QOS_extract_macid(char *mac_addr)
-{
-	char *input = NULL;
-	int i = 0;
-	int mac_id = 0;
-
-	if (!mac_addr)
-		return;
-
-	/* Extract MAC ID byte by byte */
-	input = strsep(&mac_addr, ":");
-	while(input != NULL && i < DWC_ETH_QOS_MAC_ADDR_LEN) {
-		sscanf(input, "%x", &mac_id);
-		dev_addr[i++] = mac_id;
-		input = strsep(&mac_addr, ":");
-	}
-	return;
+	return ret;
 }
 
 static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
@@ -1608,8 +1721,8 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		goto err_out_dev_failed;
 	}
 
-	if (pparams.mac_addr != "")
-		DWC_ETH_QOS_extract_macid(pparams.mac_addr);
+	if (pparams.is_valid_mac_addr == true)
+		ether_addr_copy(dev_addr, pparams.mac_addr);
 
 	dev->dev_addr[0] = dev_addr[0];
 	dev->dev_addr[1] = dev_addr[1];
@@ -1870,8 +1983,18 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 
 	DWC_ETH_QOS_create_debugfs(pdata);
 
-	if (pdata->res_data->early_eth_en)
-		ret = DWC_ETH_QOS_add_ipaddr(&pparams, dev);
+	if (pdata->res_data->early_eth_en) {
+		if (pparams.is_valid_ipv4_addr)
+			ret = DWC_ETH_QOS_add_ipaddr(pdata);
+
+		if (pparams.is_valid_ipv6_addr) {
+			INIT_DELAYED_WORK(&pdata->ipv6_addr_assign_wq, is_ipv6_NW_stack_ready);
+			ret = DWC_ETH_QOS_add_ipv6addr(pdata);
+			if (ret)
+				schedule_delayed_work(&pdata->ipv6_addr_assign_wq, msecs_to_jiffies(1000));
+		}
+
+	}
 
 	EMACDBG("<-- DWC_ETH_QOS_configure_netdevice\n");
 
@@ -2370,12 +2493,12 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	INT ret;
 
-	DBGPR("-->DWC_ETH_QOS_resume\n");
+	EMACDBG("-->DWC_ETH_QOS_resume\n");
 	if (of_device_is_compatible(pdev->dev.of_node, "qcom,emac-smmu-embedded"))
 		return 0;
 
 	if (!dev || !netif_running(dev)) {
-		DBGPR("<--DWC_ETH_QOS_dev_resume\n");
+		EMACERR("<--DWC_ETH_QOS_dev_resume not possible\n");
 		return -EINVAL;
 	}
 
@@ -2395,7 +2518,7 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
 
-	DBGPR("<--DWC_ETH_QOS_resume\n");
+	EMACDBG("<--DWC_ETH_QOS_resume\n");
 
 	return ret;
 }

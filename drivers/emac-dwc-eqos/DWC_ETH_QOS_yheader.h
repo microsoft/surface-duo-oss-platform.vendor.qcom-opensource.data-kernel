@@ -129,7 +129,8 @@
 #include <soc/qcom/boot_stats.h>
 #endif
 #include <linux/inetdevice.h>
-#include <net/addrconf.h>
+#include <net/inet_common.h>
+#include <net/ipv6.h>
 #include <linux/inet.h>
 #include <asm/uaccess.h>
 
@@ -348,6 +349,7 @@
 #define LINK_UP 1
 #define LINK_DOWN 0
 #define ENABLE_PHY_INTERRUPTS 0xcc00
+#define MICREL_LINK_UP_INTR_STATUS		BIT(0)
 
 /* Default MTL queue operation mode values */
 #define DWC_ETH_QOS_Q_DISABLED	0x0
@@ -374,6 +376,7 @@
 		"<error>"))))
 
 #define DWC_ETH_QOS_MAC_ADDR_LEN 6
+#define DWC_ETH_QOS_MAC_ADDR_STR_LEN 18
 #ifndef DWC_ETH_QOS_ENABLE_VLAN_TAG
 #define VLAN_HLEN 0
 #endif
@@ -651,6 +654,7 @@
 #define IPA_DMA_TX_CH 0
 #define IPA_DMA_RX_CH 0
 
+#define IPA_RX_TO_DMA_CH_MAP_NUM	BIT(0);
 
 #define EMAC_GDSC_EMAC_NAME "gdsc_emac"
 #define EMAC_VREG_RGMII_NAME "vreg_rgmii"
@@ -1869,13 +1873,20 @@ struct DWC_ETH_QOS_prv_data {
 
 	bool jumbo_frame_supported;
 	bool print_kpi;
+	struct delayed_work ipv6_addr_assign_wq;
 };
 
 struct ip_params {
-	char mac_addr[18];
+	UCHAR mac_addr[DWC_ETH_QOS_MAC_ADDR_LEN];
+	bool is_valid_mac_addr;
 	char link_speed[32];
-	char ip_addr[32];
-	char ipv6_addr[48];
+	bool is_valid_link_speed;
+	char ipv4_addr_str[32];
+	struct in_addr ipv4_addr;
+	bool is_valid_ipv4_addr;
+	char ipv6_addr_str[48];
+	struct in6_ifreq ipv6_addr;
+	bool is_valid_ipv6_addr;
 };
 
 typedef enum {
@@ -2040,8 +2051,8 @@ irqreturn_t DWC_ETH_QOS_PHY_ISR(int irq, void *dev_id);
 
 void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata);
 void DWC_ETH_QOS_dma_desc_stats_init(struct DWC_ETH_QOS_prv_data *pdata);
-int DWC_ETH_QOS_add_ipaddr(struct ip_params *ip_info, struct net_device *dev);
-int DWC_ETH_QOS_add_ipv6addr(struct ip_params *ip_info, struct net_device *dev);
+int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *);
+int DWC_ETH_QOS_add_ipv6addr(struct DWC_ETH_QOS_prv_data *);
 
 /* For debug prints*/
 #define DRV_NAME "qcom-emac-dwc-eqos"
