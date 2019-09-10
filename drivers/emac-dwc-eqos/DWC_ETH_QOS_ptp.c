@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -51,7 +51,7 @@
 #include "DWC_ETH_QOS_yapphdr.h"
 
 #ifdef CONFIG_PPS_OUTPUT
-extern int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct* req);
+extern int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg);
 extern void DWC_ETH_QOS_pps_timer_init(struct ifr_data_struct* req);
 #endif
 
@@ -323,7 +323,7 @@ int DWC_ETH_QOS_ptp_init(struct DWC_ETH_QOS_prv_data *pdata)
 		req.ptr = (void*)&eth_pps_cfg;
 
 		DWC_ETH_QOS_pps_timer_init(&req);
-		ret = ETH_PPSOUT_Config(pdata, &req);
+		ret = ETH_PPSOUT_Config(pdata, &eth_pps_cfg);
 	}
 #endif
 	DBGPR_PTP("<--DWC_ETH_QOS_ptp_init\n");
