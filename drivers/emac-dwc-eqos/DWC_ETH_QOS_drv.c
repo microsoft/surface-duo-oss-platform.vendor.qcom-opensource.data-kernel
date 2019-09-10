@@ -5103,9 +5103,8 @@ static int DWC_ETH_QOS_config_pfc(struct net_device *dev,
  *
  * \retval 0: Success, -1 : Failure
  * */
-static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
+static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg)
 {
-	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	int ret = 0;
 
@@ -5265,9 +5264,8 @@ void stop_pps(int ch)
  *
  * \retval 0: Success, -1 : Failure
  * */
-int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
+int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg)
 {
-	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
 	unsigned int val;
 	int interval, width;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
@@ -5815,12 +5813,11 @@ static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 			sizeof(struct ETH_PPS_Config))) {
 			return -EFAULT;
 		}
-		req->ptr = &eth_pps_cfg;
 
 		if(pdata->hw_feat.pps_out_num == 0)
 			ret = -EOPNOTSUPP;
 		else
-			ret = ETH_PTPCLK_Config(pdata, req);
+			ret = ETH_PTPCLK_Config(pdata, &eth_pps_cfg);
 		break;
 
 	case DWC_ETH_QOS_CONFIG_PPSOUT_CMD:
@@ -5829,12 +5826,11 @@ static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 			sizeof(struct ETH_PPS_Config))) {
 			return -EFAULT;
 		}
-		req->ptr = &eth_pps_cfg;
 
 		if(pdata->hw_feat.pps_out_num == 0)
 			ret = -EOPNOTSUPP;
 		else
-			ret = ETH_PPSOUT_Config(pdata, req);
+			ret = ETH_PPSOUT_Config(pdata, &eth_pps_cfg);
 		break;
 #endif
 
