@@ -1091,7 +1091,47 @@ static int aqo_save_regs(struct ipa_eth_device *eth_dev,
 
 	return 0;
 }
-#endif
+#endif /* IPA_ETH_API_VER >= 3 */
+
+#if IPA_ETH_API_VER >= 4
+static int aqo_prepare_reset(struct ipa_eth_device *eth_dev, void *data)
+{
+	int rc = 0;
+	struct aqo_device *aqo_dev = eth_dev->od_priv;
+
+	if (eth_dev->of_state == IPA_ETH_OF_ST_STARTED) {
+		rc |= aqo_gsi_stop_rx(aqo_dev);
+		rc |= aqo_gsi_stop_tx(aqo_dev);
+	}
+
+	if (eth_dev->of_state == IPA_ETH_OF_ST_STARTED ||
+			eth_dev->of_state == IPA_ETH_OF_ST_INITED) {
+		rc |= aqo_gsi_deinit_rx(aqo_dev);
+		rc |= aqo_gsi_deinit_tx(aqo_dev);
+	}
+
+	return rc;
+}
+
+static int aqo_complete_reset(struct ipa_eth_device *eth_dev, void *data)
+{
+	int rc = 0;
+	struct aqo_device *aqo_dev = eth_dev->od_priv;
+
+	if (eth_dev->of_state == IPA_ETH_OF_ST_STARTED ||
+			eth_dev->of_state == IPA_ETH_OF_ST_INITED) {
+		rc |= aqo_gsi_init_rx(aqo_dev);
+		rc |= aqo_gsi_init_tx(aqo_dev);
+	}
+
+	if (eth_dev->of_state == IPA_ETH_OF_ST_STARTED) {
+		rc |= aqo_gsi_start_tx(aqo_dev);
+		rc |= aqo_gsi_start_rx(aqo_dev);
+	}
+
+	return rc;
+}
+#endif /* IPA_ETH_API_VER >= 4 */
 
 static struct ipa_eth_offload_ops aqo_offload_ops = {
 	.pair = aqo_pair,
@@ -1113,6 +1153,12 @@ static struct ipa_eth_offload_ops aqo_offload_ops = {
 #if IPA_ETH_API_VER >= 3
 	.save_regs = aqo_save_regs,
 #endif
+
+#if IPA_ETH_API_VER >= 4
+	.prepare_reset = aqo_prepare_reset,
+	.complete_reset = aqo_complete_reset,
+#endif
+
 };
 
 static struct ipa_eth_offload_driver aqo_offload_driver = {
