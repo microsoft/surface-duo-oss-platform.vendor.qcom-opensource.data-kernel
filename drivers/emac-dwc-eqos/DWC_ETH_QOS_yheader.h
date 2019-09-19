@@ -2059,6 +2059,7 @@ int DWC_ETH_QOS_sdcc_set_bypass_mode(void);
 int DWC_ETH_QOS_rgmii_io_macro_dll_reset(struct DWC_ETH_QOS_prv_data *pdata);
 void dump_rgmii_io_macro_registers(void);
 int DWC_ETH_QOS_set_rgmii_func_clk_en(void);
+u32 DWC_ETH_QOS_rgmii_io_macro_num_of_regs(u32 emac_hw_version);
 
 #define EMAC_MDC "dev-emac-mdc"
 #define EMAC_MDIO "dev-emac-mdio"
