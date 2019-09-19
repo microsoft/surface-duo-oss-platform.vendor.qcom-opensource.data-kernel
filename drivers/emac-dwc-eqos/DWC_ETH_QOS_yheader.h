@@ -2116,6 +2116,29 @@ do {\
 	PRINT_MAC((unsigned char*)(skb->data)+ETH_HLEN,3 );\
 }while(0)
 
+#define EMACDBG(fmt, args...) \
+	pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
+#define EMACINFO(fmt, args...) \
+	pr_info(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
+#define EMACERR(fmt, args...) \
+do {\
+	pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+	if (ipc_emac_log_ctxt) { \
+		ipc_log_string(ipc_emac_log_ctxt, \
+		"%s: %s[%u]:[emac] ERROR:" fmt, __FILENAME__ , \
+		__func__, __LINE__, ## args); \
+	} \
+}while(0)
+
+#define EMACKPI(fmt, args...) \
+do {\
+	pr_info_once(DRV_NAME " %s:%d" fmt, __func__, __LINE__, ## args);\
+	if (ipc_emac_log_ctxt) { \
+		ipc_log_string(ipc_emac_log_ctxt, \
+		"KPI %s[%u]:" fmt, __func__, __LINE__, ## args); \
+	} \
+}while(0)
+
 #ifdef YDEBUG
 #define DBGPR(x...) printk(KERN_ALERT x)
 #define DBGPR_REGS() dbgpr_regs()

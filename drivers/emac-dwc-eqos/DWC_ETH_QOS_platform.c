@@ -1692,8 +1692,12 @@ int DWC_ETH_QOS_add_ipv6addr(struct DWC_ETH_QOS_prv_data *pdata)
 	ret = inet6_ioctl(net->genl_sock->sk_socket, SIOCSIFADDR, (unsigned long)(void *)&ir6);
 	if (ret)
 		EMACERR("Can't setup IPv6 address!\r\n");
-	else
-		EMACDBG("Assigned IPv6 address: %s\r\n", ip_info->ipv6_addr_str);
+	else {
+#if defined(DWC_ETH_QOS_BUILTIN) && defined(CONFIG_MSM_BOOT_TIME_MARKER)
+		place_marker("M - Ethernet Assigned IPv6 address");
+#endif
+		EMACKPI("M - Ethernet Assigned IPv6 address");
+	}
 #endif
 	return ret;
 }
@@ -1721,8 +1725,12 @@ int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *pdata)
 	ret = inet_ioctl(net->genl_sock->sk_socket, SIOCSIFADDR, (unsigned long)(void *)&ir);
 	if (ret)
 		EMACERR( "Can't setup IPv4 address!: %d\r\n", ret);
-	else
-		EMACDBG("Assigned IPv4 address: %s\r\n", ip_info->ipv4_addr_str);
+	else {
+#if defined(DWC_ETH_QOS_BUILTIN) && defined(CONFIG_MSM_BOOT_TIME_MARKER)
+		place_marker("M - Etherent Assigned IPv4 address");
+#endif
+		EMACKPI("M - Etherent Assigned IPv4 address");
+	}
 #endif
 	return ret;
 }
@@ -2213,12 +2221,12 @@ static int DWC_ETH_QOS_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 
-	EMACDBG("--> DWC_ETH_QOS_probe\n");
-#ifdef CONFIG_MSM_BOOT_TIME_MARKER
-	place_marker("M - Ethernet probe start");
-#endif
 	if (of_device_is_compatible(pdev->dev.of_node, "qcom,emac-smmu-embedded"))
 		return emac_emb_smmu_cb_probe(pdev);
+#if defined(DWC_ETH_QOS_BUILTIN) && defined(CONFIG_MSM_BOOT_TIME_MARKER)
+	place_marker("M - Ethernet probe start");
+#endif
+	EMACKPI("M - Ethernet probe start");
 
 	ret = DWC_ETH_QOS_get_dts_config(pdev);
 	if (ret)
@@ -2484,12 +2492,12 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 		0x9b8a5506,
 	};
 
-	EMACDBG("-->DWC_ETH_QOS_suspend\n");
-
 	if (of_device_is_compatible(pdev->dev.of_node, "qcom,emac-smmu-embedded")) {
 		EMACDBG("<--DWC_ETH_QOS_suspend smmu return\n");
 		return 0;
 	}
+
+	EMACKPI("M - Ethernet suspend start");
 
 	if (pdata->ipa_enabled && pdata->prv_ipa.ipa_offload_conn) {
 		pdata->power_down_type |= DWC_ETH_QOS_EMAC_INTR_WAKEUP;
@@ -2513,11 +2521,9 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 	ret = DWC_ETH_QOS_powerdown(dev, pmt_flags, DWC_ETH_QOS_DRIVER_CONTEXT);
 
 	DWC_ETH_QOS_suspend_clks(pdata);
-
-	EMACDBG("<--DWC_ETH_QOS_suspend ret = %d\n", ret);
-#ifdef CONFIG_MSM_BOOT_TIME_MARKER
 	pdata->print_kpi = 0;
-#endif
+	EMACKPI("M - Ethernet suspend end");
+	EMACDBG("<--DWC_ETH_QOS_suspend ret = %d\n", ret);
 	return ret;
 }
 
@@ -2549,9 +2555,10 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	INT ret;
 
-	EMACDBG("-->DWC_ETH_QOS_resume\n");
 	if (of_device_is_compatible(pdev->dev.of_node, "qcom,emac-smmu-embedded"))
 		return 0;
+
+	EMACKPI("M - Ethernet resume start");
 
 	if (!dev || !netif_running(dev)) {
 		EMACERR("<--DWC_ETH_QOS_dev_resume not possible\n");
@@ -2574,7 +2581,7 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
 
-	EMACDBG("<--DWC_ETH_QOS_resume\n");
+	EMACKPI("M - Ethernet resume end");
 
 	return ret;
 }
