@@ -2076,6 +2076,7 @@ void DWC_ETH_QOS_program_avb_algorithm_hw_register(
 int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg);
 void DWC_ETH_QOS_pps_timer_init(struct ifr_data_struct *req);
 #endif
+u32 DWC_ETH_QOS_rgmii_io_macro_num_of_regs(u32 emac_hw_version);
 
 #define EMAC_MDC "dev-emac-mdc"
 #define EMAC_MDIO "dev-emac-mdio"
