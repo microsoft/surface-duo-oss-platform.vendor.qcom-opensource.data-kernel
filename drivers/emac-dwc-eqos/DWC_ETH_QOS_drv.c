@@ -2453,6 +2453,10 @@ inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb, UINT eth_type,
 	struct DWC_ETH_QOS_prv_data *pdata)
 {
 	UINT ret = DEFAULT_INT_MOD;
+	static int first_tx_pkt_kpi = 0;
+
+	if (first_tx_pkt_kpi++ == 0)
+		return ret;
 
 #ifdef DWC_ETH_QOS_CONFIG_PTP
 	if (eth_type == ETH_P_1588)
@@ -2507,7 +2511,7 @@ static int DWC_ETH_QOS_start_xmit(struct sk_buff *skb, struct net_device *dev)
 #endif
 	int tso;
 	struct netdev_queue *devq = netdev_get_tx_queue(dev, qinx);
-	UINT int_mod = 1;
+	UINT int_mod = DEFAULT_INT_MOD;
 	UINT eth_type = 0;
 
 
@@ -2996,6 +3000,7 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 #if defined(DWC_ETH_QOS_BUILTIN) && defined(CONFIG_MSM_BOOT_TIME_MARKER)
 			if ( dev->stats.tx_packets == 1) {
 				place_marker("M - Ethernet first packet transmitted");
+				EMACKPI("M - Ethernet first packet transmitted");
 			}
 #endif
 		}
@@ -3935,6 +3940,7 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 #if defined(DWC_ETH_QOS_BUILTIN) && defined(CONFIG_MSM_BOOT_TIME_MARKER)
 				if ( dev->stats.rx_packets == 1) {
 					place_marker("M - Ethernet first packet received");
+					EMACKPI("M - Ethernet first packet received");
 				}
 #endif
 			} else {
