@@ -1,4 +1,12 @@
 
+ccflags-y := -Ofast
+
+# Allow warnings to fail builds
+ccflags-y += -Wall -Werror
+
+# Enable additional warnings that are compatible with kernel headers
+ccflags-y += -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-cast-function-type
+
 obj-m += aqc_ipa_offload.o
 
 aqc_ipa_offload-y := aqo_main.o \
@@ -7,6 +15,4 @@ aqc_ipa_offload-y := aqo_main.o \
 		aqo_netdev.o \
 		aqo_proxy.o \
 		aqo_uc.o \
-		aqo_regs.o \
-
-
+		aqo_regs.o

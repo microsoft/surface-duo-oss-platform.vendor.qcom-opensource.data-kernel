@@ -144,11 +144,11 @@ static int aqo_parse_rx_proxy_host(struct device_node *np,
 	aqo_dev->ch_rx.proxy.host_ctx.msi_data = 1 << (hwirq % 32);
 
 	aqo_log_dbg(aqo_dev,
-			"MSI irq: %u, hwirq: %u, ispendr: 0x%llx",
+			"MSI irq: %u, hwirq: %lu, ispendr: 0x%llx",
 			irq, hwirq, reg);
 	aqo_log_dbg(aqo_dev,
-			"MSI addr: 0x%lx, data: 0x%lx",
-			aqo_dev->ch_rx.proxy.host_ctx.msi_addr.paddr,
+			"MSI addr: %pa, data: 0x%x",
+			&aqo_dev->ch_rx.proxy.host_ctx.msi_addr.paddr,
 			aqo_dev->ch_rx.proxy.host_ctx.msi_data);
 
 	aqo_dev->ch_rx.proxy.host_ctx.valid = true;
@@ -244,7 +244,7 @@ static int aqo_parse_rx_ring_size(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_RING_SZ_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -280,7 +280,7 @@ static int aqo_parse_rx_buff_size(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_BUFF_SZ_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -323,7 +323,7 @@ static int aqo_parse_rx_int_mod(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_RX_INT_MOD_USECS_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -423,7 +423,7 @@ static int aqo_parse_rx_gsi_modt(struct device_node *np,
 	} else {
 		aqo_dev->ch_rx.gsi_modt = AQO_GSI_DEFAULT_RX_MODT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, aqo_dev->ch_rx.gsi_modt);
 	}
 
@@ -452,7 +452,7 @@ static int aqo_parse_tx_ring_size(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_RING_SZ_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -488,7 +488,7 @@ static int aqo_parse_tx_buff_size(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_BUFF_SZ_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -665,7 +665,7 @@ static int aqo_parse_tx_gsi_modt(struct device_node *np,
 	} else {
 		aqo_dev->ch_tx.gsi_modt = AQO_GSI_DEFAULT_TX_MODT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, aqo_dev->ch_tx.gsi_modt);
 	}
 
@@ -742,8 +742,8 @@ static int aqo_parse_pci(struct aqo_device *aqo_dev)
 	aqo_dev->regs_base.paddr = pci_resource_start(pci_dev, 0);
 	aqo_dev->regs_base.size = pci_resource_len(pci_dev, 0);
 
-	aqo_log(aqo_dev, "PCI BAR 0 is at %p, size %zx",
-		aqo_dev->regs_base.paddr, aqo_dev->regs_base.size);
+	aqo_log(aqo_dev, "PCI BAR 0 is at %pa, size 0x%zx",
+		&aqo_dev->regs_base.paddr, aqo_dev->regs_base.size);
 
 	return 0;
 }
@@ -772,6 +772,8 @@ static int aqo_pair(struct ipa_eth_device *eth_dev)
 	aqo_dev = devm_kzalloc(eth_dev->dev, sizeof(*aqo_dev), GFP_KERNEL);
 	if (!aqo_dev)
 		return -ENOMEM;
+
+	mutex_init(&aqo_dev->ssr_mutex);
 
 	aqo_dev->eth_dev = eth_dev;
 
@@ -1096,40 +1098,16 @@ static int aqo_save_regs(struct ipa_eth_device *eth_dev,
 #if IPA_ETH_API_VER >= 4
 static int aqo_prepare_reset(struct ipa_eth_device *eth_dev, void *data)
 {
-	int rc = 0;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
-	if (eth_dev->of_state == IPA_ETH_OF_ST_STARTED) {
-		rc |= aqo_gsi_stop_rx(aqo_dev);
-		rc |= aqo_gsi_stop_tx(aqo_dev);
-	}
-
-	if (eth_dev->of_state == IPA_ETH_OF_ST_STARTED ||
-			eth_dev->of_state == IPA_ETH_OF_ST_INITED) {
-		rc |= aqo_gsi_deinit_rx(aqo_dev);
-		rc |= aqo_gsi_deinit_tx(aqo_dev);
-	}
-
-	return rc;
+	return aqo_gsi_prepare_ssr(aqo_dev);
 }
 
 static int aqo_complete_reset(struct ipa_eth_device *eth_dev, void *data)
 {
-	int rc = 0;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
-	if (eth_dev->of_state == IPA_ETH_OF_ST_STARTED ||
-			eth_dev->of_state == IPA_ETH_OF_ST_INITED) {
-		rc |= aqo_gsi_init_rx(aqo_dev);
-		rc |= aqo_gsi_init_tx(aqo_dev);
-	}
-
-	if (eth_dev->of_state == IPA_ETH_OF_ST_STARTED) {
-		rc |= aqo_gsi_start_tx(aqo_dev);
-		rc |= aqo_gsi_start_rx(aqo_dev);
-	}
-
-	return rc;
+	return aqo_gsi_complete_ssr(aqo_dev);
 }
 #endif /* IPA_ETH_API_VER >= 4 */
 

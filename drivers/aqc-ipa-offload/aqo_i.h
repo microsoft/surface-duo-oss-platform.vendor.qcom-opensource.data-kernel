@@ -14,6 +14,7 @@
 #define __AQO_I_H__
 
 #include <linux/pci.h>
+#include <linux/msm_gsi.h>
 
 #define IPA_ETH_OFFLOAD_DRIVER
 #include <linux/ipa_eth.h>
@@ -130,6 +131,64 @@ struct aqo_proxy {
 	struct aqo_proxy_host_context host_ctx;
 };
 
+#ifndef __LITTLE_ENDIAN_BITFIELD
+#error Big endian bit field is not supported
+#endif
+
+struct aqo_gsi_rx_ch_scratch {
+	/* Word 1 */
+	unsigned buff_mem_lsb:32;
+
+	/* Word 2 */
+	unsigned buff_msm_msb:8;
+	unsigned unused_1:8;
+	unsigned buff_size_log2:16;
+
+	/* Word 3 */
+	unsigned head_ptr_lsb:32;
+
+	/* Word 4 */
+	unsigned head_ptr_msb:9;
+	unsigned unused_2:23;
+} __packed;
+
+struct aqo_gsi_tx_ch_scratch {
+	/* Word 1 */
+	unsigned unused_1:32;
+
+	/* Word 2 */
+	unsigned unused_2:16;
+	unsigned buff_size_log2:16;
+} __packed;
+
+struct aqo_gsi_tx_evt_ring_scratch {
+	/* Word 1 */
+	unsigned head_ptr_wrb_thresh:32;
+} __packed;
+
+union aqo_gsi_ch_scratch {
+	union gsi_channel_scratch scratch;
+	struct aqo_gsi_rx_ch_scratch rx;
+	struct aqo_gsi_tx_ch_scratch tx;
+} __packed;
+
+union aqo_gsi_evt_ring_scratch {
+	union gsi_evt_scratch scratch;
+	struct aqo_gsi_tx_evt_ring_scratch tx;
+} __packed;
+
+struct aqo_gsi_config {
+	struct gsi_chan_props ch_props;
+	union aqo_gsi_ch_scratch ch_scratch;
+	phys_addr_t ch_db_addr;
+	u64 ch_db_val;
+
+	struct gsi_evt_ring_props evt_ring_props;
+	union aqo_gsi_evt_ring_scratch evt_ring_scratch;
+	phys_addr_t evt_ring_db_addr;
+	u64 evt_ring_db_val;
+};
+
 struct aqo_channel {
 	struct aqo_proxy proxy;
 
@@ -142,7 +201,17 @@ struct aqo_channel {
 	u32 gsi_modc;
 	u32 gsi_modt;
 
+	struct aqo_gsi_config gsi_config;
+
 	struct ipa_eth_channel *eth_ch;
+};
+
+enum aqo_device_states {
+	AQO_DEV_S_RX_GSI_INIT,
+	AQO_DEV_S_RX_GSI_START,
+	AQO_DEV_S_TX_GSI_INIT,
+	AQO_DEV_S_TX_GSI_START,
+	AQO_DEV_S_IN_SSR,
 };
 
 struct aqo_device {
@@ -158,6 +227,9 @@ struct aqo_device {
 	u32 tx_wrb_mod_count;
 
 	bool pci_direct;
+
+	unsigned long state;
+	struct mutex ssr_mutex;
 
 	struct aqo_regs regs_save;
 };
@@ -187,6 +259,9 @@ int aqo_gsi_deinit_tx(struct aqo_device *aqo_dev);
 
 int aqo_gsi_start_tx(struct aqo_device *aqo_dev);
 int aqo_gsi_stop_tx(struct aqo_device *aqo_dev);
+
+int aqo_gsi_prepare_ssr(struct aqo_device *aqo_dev);
+int aqo_gsi_complete_ssr(struct aqo_device *aqo_dev);
 
 /* AQC Netdev */
 
