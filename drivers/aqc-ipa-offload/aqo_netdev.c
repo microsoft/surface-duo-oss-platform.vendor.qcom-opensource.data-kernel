@@ -83,8 +83,9 @@ int aqo_netdev_init_rx_event(struct aqo_device *aqo_dev)
 		return -EINVAL;
 	}
 
-	aqo_log(aqo_dev, "Requesting AQC Rx MSI to address %llx using data %lx",
-			msi_addr, msi_data);
+	aqo_log(aqo_dev,
+		"Requesting AQC Rx MSI to address %llx using data %x",
+		msi_addr, msi_data);
 
 	return ipa_eth_net_request_event(aqo_dev->ch_rx.eth_ch,
 			IPA_ETH_DEV_EV_RX_INT, msi_addr, msi_data);
