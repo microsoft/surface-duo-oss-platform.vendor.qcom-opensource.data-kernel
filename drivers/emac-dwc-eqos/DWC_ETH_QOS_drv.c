@@ -54,6 +54,11 @@
 #include "DWC_ETH_QOS_ipa.h"
 
 extern ULONG dwc_eth_qos_base_addr;
+extern bool avb_class_b_msg_wq_flag;
+extern bool avb_class_a_msg_wq_flag;
+extern wait_queue_head_t avb_class_a_msg_wq;
+extern wait_queue_head_t avb_class_b_msg_wq;
+
 
 #include "DWC_ETH_QOS_yregacc.h"
 #define DEFAULT_START_TIME 0x1900
@@ -3900,6 +3905,15 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 									  "failed to do the RX dma map\n");
 
 							goto rx_tstmp_failed;
+						} else {
+						   /* HW timestamp consumes one full DMA descriptor.
+						   * We need to unmap the DMA buffer here otherwise when IOMMU
+						   * is enabled we leak the mappings and eventually run out of them.
+						   * The skb will be safely reused and doesn't need to be freed.
+						   */
+						   buffer = GET_RX_BUF_PTR(qinx, desc_data->cur_rx);
+						   dma_unmap_single(GET_MEM_PDEV_DEV, buffer->dma, pdata->rx_buffer_len, DMA_FROM_DEVICE);
+						   buffer->dma = 0;
 						}
 					}
 				}
@@ -4955,52 +4969,14 @@ static VOID DWC_ETH_QOS_config_timer_registers(
 {
 		struct timespec now;
 		struct hw_if_struct *hw_if = &pdata->hw_if;
-		u64 temp;
 
 		DBGPR("-->DWC_ETH_QOS_config_timer_registers\n");
 
+	pdata->ptpclk_freq = DWC_ETH_QOS_DEFAULT_PTP_CLOCK;
+	/* program default addend */
+	hw_if->config_default_addend(pdata, DWC_ETH_QOS_DEFAULT_PTP_CLOCK);
 		/* program Sub Second Increment Reg */
-#ifdef CONFIG_PPS_OUTPUT
-		/* If default_addend is already programmed, then we expect that
-      * sub_second_increment is also programmed already */
-		if(pdata->default_addend == 0){
-			hw_if->config_sub_second_increment(DWC_ETH_QOS_DEFAULT_PTP_CLOCK); // Using default 50MHz
-		}
-		else {
-			u64 pclk;
-			pclk = (u64) (pdata->default_addend) *  DWC_ETH_QOS_SYSCLOCK;
-			pclk += 0x8000000;
-			pclk >>= 32;
-			hw_if->config_sub_second_increment((u32)pclk);
-		}
-#else
 		hw_if->config_sub_second_increment(DWC_ETH_QOS_DEFAULT_PTP_CLOCK);
-#endif
-		/* formula is :
-		 * addend = 2^32/freq_div_ratio;
-		 *
-		 * where, freq_div_ratio = DWC_ETH_QOS_SYSCLOCK/50MHz
-		 *
-		 * hence, addend = ((2^32) * 50MHz)/DWC_ETH_QOS_SYSCLOCK;
-		 *
-		 * NOTE: DWC_ETH_QOS_SYSCLOCK should be >= 50MHz to
-		 *       achive 20ns accuracy.
-		 *
-		 * 2^x * y == (y << x), hence
-		 * 2^32 * 50000000 ==> (50000000 << 32)
-		 */
-#ifdef CONFIG_PPS_OUTPUT
-		if(pdata->default_addend == 0){
-			temp = (u64)((u64)DWC_ETH_QOS_DEFAULT_PTP_CLOCK  << 32);
-			pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
-			EMACDBG("Using default PTP clock = 50MHz\n");
-		}
-#else
-		temp = (u64)((u64)DWC_ETH_QOS_DEFAULT_PTP_CLOCK << 32);
-		pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
-#endif
-		hw_if->config_addend(pdata->default_addend);
-
 		/* initialize system time */
 		getnstimeofday(&now);
 		hw_if->init_systime(now.tv_sec, now.tv_nsec);
@@ -5138,7 +5114,6 @@ static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data
 	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	int ret = 0;
-	u64 val;
 
 	if ((eth_pps_cfg->ppsout_ch < 0) ||
 		(eth_pps_cfg->ppsout_ch >= pdata->hw_feat.pps_out_num))
@@ -5152,20 +5127,76 @@ static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data
 			eth_pps_cfg->ptpclk_freq );
 		return -1;
 	}
-	pdata->ptpclk_freq = eth_pps_cfg->ptpclk_freq;
-	val = (u64)(1ULL << 32);
-	val = val * (eth_pps_cfg->ptpclk_freq);
-	val += (DWC_ETH_QOS_SYSCLOCK/2);
-	val = div_u64(val, DWC_ETH_QOS_SYSCLOCK);
-	if ( val > 0xFFFFFFFF) val = 0xFFFFFFFF;
-	EMACDBG("PPS: PTPCLK_Config: freq=%dHz, addend_reg=0x%x\n",
-				eth_pps_cfg->ptpclk_freq, (unsigned int)val);
 
-	pdata->default_addend = val;
-	ret = hw_if->config_addend((unsigned int)val);
+	pdata->ptpclk_freq = eth_pps_cfg->ptpclk_freq;
+	ret = hw_if->config_default_addend(pdata, (ULONG)eth_pps_cfg->ptpclk_freq);
 	ret |= hw_if->config_sub_second_increment( (ULONG)eth_pps_cfg->ptpclk_freq);
 
 	return ret;
+}
+
+irqreturn_t DWC_ETH_QOS_PPS_avb_class_a(int irq, void *dev_id)
+{
+	struct DWC_ETH_QOS_prv_data *pdata =
+		(struct DWC_ETH_QOS_prv_data *)dev_id;
+
+	pdata->avb_class_a_intr_cnt++;
+	avb_class_a_msg_wq_flag = 1;
+	wake_up_interruptible(&avb_class_a_msg_wq);
+	return IRQ_HANDLED;
+}
+irqreturn_t DWC_ETH_QOS_PPS_avb_class_b(int irq, void *dev_id)
+{
+	struct DWC_ETH_QOS_prv_data *pdata =
+		(struct DWC_ETH_QOS_prv_data *)dev_id;
+
+	pdata->avb_class_b_intr_cnt++;
+	avb_class_b_msg_wq_flag = 1;
+	wake_up_interruptible(&avb_class_b_msg_wq);
+	return IRQ_HANDLED;
+}
+
+
+void Register_PPS_ISR(struct DWC_ETH_QOS_prv_data *pdata, int ch)
+{
+	int ret;
+
+	if (ch == DWC_ETH_QOS_PPS_CH_2 ) {
+		ret = request_irq(pdata->res_data->ptp_pps_avb_class_a_irq, DWC_ETH_QOS_PPS_avb_class_a,
+						IRQF_TRIGGER_RISING, DEV_NAME, pdata);
+		if (ret) {
+			EMACERR("Req ptp_pps_avb_class_a_irq Failed ret=%d\n",ret);
+		} else {
+			EMACERR("Req ptp_pps_avb_class_a_irq pass \n");
+			pdata->en_ptp_pps_avb_class_a_irq = true;
+		}
+	} else if (ch == DWC_ETH_QOS_PPS_CH_3) {
+		ret = request_irq(pdata->res_data->ptp_pps_avb_class_b_irq, DWC_ETH_QOS_PPS_avb_class_b,
+						IRQF_TRIGGER_RISING, DEV_NAME, pdata);
+		if (ret) {
+			EMACERR("Req ptp_pps_avb_class_b_irq Failed ret=%d\n",ret);
+		} else {
+			EMACERR("Req ptp_pps_avb_class_b_irq pass \n");
+			pdata->en_ptp_pps_avb_class_b_irq = true;
+		}
+	} else
+		EMACERR("Invalid channel %d\n", ch);
+}
+
+void Unregister_PPS_ISR(struct DWC_ETH_QOS_prv_data *pdata, int ch)
+{
+	if (ch == DWC_ETH_QOS_PPS_CH_2) {
+		if (pdata->res_data->ptp_pps_avb_class_a_irq != 0 && pdata->en_ptp_pps_avb_class_a_irq) {
+			free_irq(pdata->res_data->ptp_pps_avb_class_a_irq, pdata);
+			pdata->en_ptp_pps_avb_class_a_irq = false;
+		}
+	} else if (ch == DWC_ETH_QOS_PPS_CH_3) {
+		if (pdata->res_data->ptp_pps_avb_class_b_irq != 0 && pdata->en_ptp_pps_avb_class_b_irq) {
+			free_irq(pdata->res_data->ptp_pps_avb_class_b_irq, pdata);
+			pdata->en_ptp_pps_avb_class_b_irq = false;
+		}
+	} else
+		EMACERR("Invalid channel %d\n", ch);
 }
 
 static void configure_target_time_reg(u32 ch)
@@ -5185,15 +5216,8 @@ void DWC_ETH_QOS_pps_timer_init(struct ifr_data_struct *req)
 
 	/* Enable timestamping. This is required to start system time generator.*/
 	MAC_TCR_TSENA_UDFWR(0x1);
-
-	/* Configure MAC Sub-second and Sub-nanosecond increment register based on PTP clock. */
-	MAC_SSIR_SSINC_UDFWR(0x4); // Sub-second increment value for 250MHz and 230.4MHz ptp clock
-
-	MAC_SSIR_SNSINC_UDFWR(0x0); // Sub-nanosecond increment value for 250 MHz ptp clock
-	EMACDBG("250 clock\n");
-
 	MAC_TCR_TSUPDT_UDFWR(0x1);
-	MAC_TCR_TSCFUPDT_UDFWR(0x0); // Coarse Timestamp Update method.
+	MAC_TCR_TSCFUPDT_UDFWR(0x1); // Fine Timestamp Update method.
 
 	/* Initialize MAC System Time Update register */
 	MAC_STSUR_TSS_UDFWR(0x0); // MAC system time in seconds
@@ -5213,22 +5237,22 @@ void stop_pps(int ch)
 {
 	u32 pps_mode_select = 3;
 
-	if (ch == 0) {
+	if (ch == DWC_ETH_QOS_PPS_CH_0) {
 		EMACDBG("stop pps with channel %d\n", ch);
 		MAC_PPSC_PPSEN0_UDFWR(0x1);
 		MAC_PPSC_TRGTMODSEL0_UDFWR(pps_mode_select);
 		MAC_PPSC_PPSCTRL0_UDFWR(0x5);
-	} else if (ch == 1) {
+	} else if (ch == DWC_ETH_QOS_PPS_CH_1) {
 		EMACDBG("stop pps with channel %d\n", ch);
 		MAC_PPSC_PPSEN0_UDFWR(0x1);
 		MAC_PPSC_TRGTMODSEL1_UDFWR(pps_mode_select);
 		MAC_PPSC_PPSCMD1_UDFWR(0x5);
-	} else if (ch == 2) {
+	} else if (ch == DWC_ETH_QOS_PPS_CH_2) {
 		EMACDBG("stop pps with channel %d\n", ch);
 		MAC_PPSC_PPSEN0_UDFWR(0x1);
 		MAC_PPSC_TRGTMODSEL2_UDFWR(pps_mode_select);
 		MAC_PPSC_PPSCMD2_UDFWR(0x5);
-	} else if (ch == 3) {
+	} else if (ch == DWC_ETH_QOS_PPS_CH_3) {
 		EMACDBG("stop pps with channel %d\n", ch);
 		MAC_PPSC_PPSEN0_UDFWR(0x1);
 		MAC_PPSC_TRGTMODSEL3_UDFWR(pps_mode_select);
@@ -5252,11 +5276,16 @@ int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct
 	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
 	unsigned int val;
 	int interval, width;
-	int interval_ns; /*interval in nano seconds*/
+	struct hw_if_struct *hw_if = &pdata->hw_if;
 
-	if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
-		/* Set PTP clock to default 250 */
+	/* For lpass we need 19.2Mhz PPS frequency for PPS0.
+	   If lpass is enabled don't allow to change the PTP clock
+	   becuase if we change PTP clock then addend & subsecond increament
+	   will change & We will not see 19.2Mhz for PPS0.
+	*/
+	if (pdata->res_data->pps_lpass_conn_en ) {
 		eth_pps_cfg->ptpclk_freq = DWC_ETH_QOS_DEFAULT_PTP_CLOCK;
+		EMACDBG("using default ptp clock \n");
 	}
 
 	if ((eth_pps_cfg->ppsout_ch < 0) ||
@@ -5274,6 +5303,12 @@ int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct
 		printk("PPS: PPSOut_Config: duty cycle is invalid. Using duty=99\n");
 		eth_pps_cfg->ppsout_duty = 99;
 	}
+
+	/* Configure increment values */
+	hw_if->config_sub_second_increment(eth_pps_cfg->ptpclk_freq);
+
+	/* Configure addent value as Fine Timestamp method is used */
+	hw_if->config_default_addend(pdata, eth_pps_cfg->ptpclk_freq);
 
 	if(0 < eth_pps_cfg->ptpclk_freq) {
 		pdata->ptpclk_freq = eth_pps_cfg->ptpclk_freq;
@@ -5295,27 +5330,19 @@ int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct
 
 	EMACDBG("PPS: PPSOut_Config: interval=%d, width=%d\n", interval, width);
 
-	if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
-		//calculate interval & width
-		interval_ns = (1000000000/eth_pps_cfg->ppsout_freq) ;
-		interval = ((interval_ns)/4) - 1;
-		width = ((interval_ns)/(2*4)) - 1;
-		EMACDBG("pps_interval=%d,width=%d\n",interval,width);
-	}
-
 	switch (eth_pps_cfg->ppsout_ch) {
-	case 0:
-		if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
-			if (eth_pps_cfg->ppsout_start == 1) {
+	case DWC_ETH_QOS_PPS_CH_0:
+		if (pdata->res_data->pps_lpass_conn_en) {
+			if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_START) {
 				MAC_PPSC_PPSEN0_UDFWR(0x1);
-				MAC_PPS_INTVAL_PPSINT0_UDFWR(0, interval);
-				MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(0, width);
-				configure_target_time_reg(0);
+				MAC_PPS_INTVAL_PPSINT0_UDFWR(DWC_ETH_QOS_PPS_CH_0, interval);
+				MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(DWC_ETH_QOS_PPS_CH_0, width);
+				configure_target_time_reg(DWC_ETH_QOS_PPS_CH_0);
 				MAC_PPSC_TRGTMODSEL0_UDFWR(0x2);
 				MAC_PPSC_PPSCTRL0_UDFWR(0x2);
-			} else if (eth_pps_cfg->ppsout_start == 0) {
+			} else if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_STOP) {
 				EMACDBG("STOP pps for channel 0\n");
-				stop_pps(0);
+				stop_pps(DWC_ETH_QOS_PPS_CH_0);
 			}
 		} else{
 			MAC_PPS_INTVAL0_PPSINT0_UDFWR(interval);  // interval
@@ -5327,59 +5354,52 @@ int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct
 		}
 		break;
 
-	case 1:
-		if (pdata->emac_hw_version_type != EMAC_HW_v2_3_1) {
-			EMACINFO("PPS Channel 1 only supported for 2.3.1");
-			return -EOPNOTSUPP;
-		}
-		if (eth_pps_cfg->ppsout_start == 1) {
-			MAC_PPS_INTVAL_PPSINT0_UDFWR(1, interval);
-			MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(1, width);
-			configure_target_time_reg(1);
+	case DWC_ETH_QOS_PPS_CH_1:
+		if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_START) {
+			MAC_PPS_INTVAL_PPSINT0_UDFWR(DWC_ETH_QOS_PPS_CH_1, interval);
+			MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(DWC_ETH_QOS_PPS_CH_1, width);
+			configure_target_time_reg(DWC_ETH_QOS_PPS_CH_1);
 			MAC_PPSC_TRGTMODSEL1_UDFWR(0x2);
 			MAC_PPSC_PPSEN0_UDFWR(0x1);
 			MAC_PPSC_PPSCMD1_UDFWR(0x2);
 		}
-		else if (eth_pps_cfg->ppsout_start == 0) {
-			EMACDBG("STOP pps for chanel 1\n");
-			stop_pps(1);
+		else if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_STOP) {
+			EMACDBG("STOP pps for channel 1\n");
+			stop_pps(DWC_ETH_QOS_PPS_CH_1);
 		}
 		break;
 
-	case 2:
-		if (pdata->emac_hw_version_type != EMAC_HW_v2_3_1) {
-			EMACINFO("PPS Channel 2 only supported for 2.3.1");
-			return -EOPNOTSUPP;
-		}
-		if (eth_pps_cfg->ppsout_start == 1) {
-			MAC_PPS_INTVAL_PPSINT0_UDFWR(2, interval);
-			MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(2, width);
-			configure_target_time_reg(2);
+	case DWC_ETH_QOS_PPS_CH_2:
+		if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_START) {
+
+			Register_PPS_ISR(pdata, DWC_ETH_QOS_PPS_CH_2);
+			MAC_PPS_INTVAL_PPSINT0_UDFWR(DWC_ETH_QOS_PPS_CH_2, interval);
+			MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(DWC_ETH_QOS_PPS_CH_2, width);
+			configure_target_time_reg(DWC_ETH_QOS_PPS_CH_2);
 			MAC_PPSC_TRGTMODSEL2_UDFWR(0x2);
 			MAC_PPSC_PPSEN0_UDFWR(0x1);
 			MAC_PPSC_PPSCMD2_UDFWR(0x2);
 		}
-		else if (eth_pps_cfg->ppsout_start == 0) {
-			EMACDBG("STOP pps for chanel 2\n");
-			stop_pps(2);
+		else if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_STOP) {
+			Unregister_PPS_ISR(pdata, DWC_ETH_QOS_PPS_CH_2);
+			EMACDBG("STOP pps for channel 2\n");
+			stop_pps(DWC_ETH_QOS_PPS_CH_2);
 		}
 		break;
-	case 3:
-		if (pdata->emac_hw_version_type != EMAC_HW_v2_3_1) {
-			EMACINFO("PPS Channel 3 only supported for 2.3.1");
-			return -EOPNOTSUPP;
-		}
-		if (eth_pps_cfg->ppsout_start == 1) {
+	case DWC_ETH_QOS_PPS_CH_3:
+		if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_START) {
+			Register_PPS_ISR(pdata, DWC_ETH_QOS_PPS_CH_3);
 			EMACDBG("start pps for chanel 3\n");
-			MAC_PPS_INTVAL_PPSINT0_UDFWR(3, interval);
-			MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(3, width);
-			configure_target_time_reg(3);
+			MAC_PPS_INTVAL_PPSINT0_UDFWR(DWC_ETH_QOS_PPS_CH_3, interval);
+			MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(DWC_ETH_QOS_PPS_CH_3, width);
+			configure_target_time_reg(DWC_ETH_QOS_PPS_CH_3);
 			MAC_PPSC_TRGTMODSEL3_UDFWR(0x2);
 			MAC_PPSC_PPSEN0_UDFWR(0x1);
 			MAC_PPSC_PPSCMD3_UDFWR(0x2);
-		} else if (eth_pps_cfg->ppsout_start == 0) {
-			EMACDBG("STOP pps for chanel 2\n");
-			stop_pps(3);
+		} else if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_STOP) {
+			Unregister_PPS_ISR(pdata, DWC_ETH_QOS_PPS_CH_3);
+			EMACDBG("STOP pps for channel 3\n");
+			stop_pps(DWC_ETH_QOS_PPS_CH_3);
 		}
 		break;
 	default:
@@ -5864,7 +5884,6 @@ static int DWC_ETH_QOS_handle_hwtstamp_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 	u32 ts_event_en = 0;
 	u32 av_8021asm_en = 0;
 	u32 VARMAC_TCR = 0;
-	u64 temp = 0;
 	struct timespec now;
 
 	DBGPR_PTP("-->DWC_ETH_QOS_handle_hwtstamp_ioctl\n");
@@ -6035,56 +6054,11 @@ static int DWC_ETH_QOS_handle_hwtstamp_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 
 		hw_if->config_hw_time_stamping(VARMAC_TCR);
 
+		/* program default addend */
+		hw_if->config_default_addend(pdata, DWC_ETH_QOS_DEFAULT_PTP_CLOCK);
+
 		/* program Sub Second Increment Reg */
-#ifdef CONFIG_PPS_OUTPUT
-		if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
-			hw_if->config_sub_second_increment(DWC_ETH_QOS_DEFAULT_PTP_CLOCK); // Using default 50MHz
-		} else {
-			/* If default_addend is already programmed, then we expect that
-			* sub_second_increment is also programmed already */
-			if (pdata->default_addend == 0) {
-				hw_if->config_sub_second_increment(DWC_ETH_QOS_DEFAULT_PTP_CLOCK); // Using default 50MHz
-			} else {
-				u64 pclk;
-				pclk = (u64) (pdata->default_addend) *  DWC_ETH_QOS_SYSCLOCK;
-				pclk += 0x8000000;
-				pclk >>= 32;
-				hw_if->config_sub_second_increment((u32)pclk);
-			}
-		}
-#else
 		hw_if->config_sub_second_increment(DWC_ETH_QOS_DEFAULT_PTP_CLOCK);
-#endif
-		/* formula is :
-		 * addend = 2^32/freq_div_ratio;
-		 *
-		 * where, freq_div_ratio = DWC_ETH_QOS_SYSCLOCK/50MHz
-		 *
-		 * hence, addend = ((2^32) * 50MHz)/DWC_ETH_QOS_SYSCLOCK;
-		 *
-		 * NOTE: DWC_ETH_QOS_SYSCLOCK should be >= 50MHz to
-		 *       achive 20ns accuracy.
-		 *
-		 * 2^x * y == (y << x), hence
-		 * 2^32 * 50000000 ==> (50000000 << 32)
-		 *
-		 */
-#ifdef CONFIG_PPS_OUTPUT
-	if (pdata->emac_hw_version_type == EMAC_HW_v2_3_1) {
-			temp = (u64)(50000000ULL << 32);
-			pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
-	} else {
-		if(pdata->default_addend == 0){
-			temp = (u64)((u64)DWC_ETH_QOS_DEFAULT_PTP_CLOCK << 32);
-			pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
-			EMACDBG("Using default PTP clock = 50MHz\n");
-		}
-	}
-#else
-		temp = (u64)((u64)DWC_ETH_QOS_DEFAULT_PTP_CLOCK << 32);
-		pdata->default_addend = div_u64(temp, DWC_ETH_QOS_SYSCLOCK);
-#endif
-		hw_if->config_addend(pdata->default_addend);
 
 		/* initialize system time */
 		getnstimeofday(&now);
@@ -6187,7 +6161,6 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct ifr_data_struct req;
-
 	struct mii_ioctl_data *data = if_mii(ifr);
 	unsigned int reg_val = 0;
 	int ret = 0;
@@ -8108,7 +8081,7 @@ void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata)
 	pdata->xstats.dma_debug_status1 = DWC_ETH_QOS_reg_read(DMA_DSR1_RGOFFADDR);
 
 	for (qinx = 0; qinx < DWC_ETH_QOS_TX_QUEUE_CNT; qinx++) {
-		if (qinx == IPA_DMA_TX_CH)
+		if (pdata->ipa_enabled && qinx == IPA_DMA_TX_CH)
 			continue;
 		pdata->xstats.dma_ch_status[qinx] = DWC_ETH_QOS_reg_read(DMA_SR_RGOFFADDRESS(qinx));
 		pdata->xstats.dma_ch_intr_enable[qinx] = DWC_ETH_QOS_reg_read(DMA_IER_RGOFFADDRESS(qinx));
@@ -8121,7 +8094,7 @@ void DWC_ETH_QOS_dma_desc_stats_read(struct DWC_ETH_QOS_prv_data *pdata)
 	}
 
 	for (qinx = 0; qinx < DWC_ETH_QOS_RX_QUEUE_CNT; qinx++) {
-		if (qinx == IPA_DMA_RX_CH)
+		if (pdata->ipa_enabled && qinx == IPA_DMA_RX_CH)
 			continue;
 		pdata->xstats.dma_ch_rx_control[qinx] = DWC_ETH_QOS_reg_read(DMA_RCR_RGOFFADDRESS(qinx));
 		pdata->xstats.dma_ch_rxdesc_list_addr[qinx] = DWC_ETH_QOS_reg_read(DMA_RDLAR_RGOFFADDRESS(qinx));
