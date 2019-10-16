@@ -33,11 +33,26 @@ static const char aqo_driver_name[] = AQO_DRIVER_NAME;
 static const u32 PCI_VENDOR_ID_AQUANTIA = 0x1d6a;
 
 static const struct pci_device_id aquantia_pci_ids[] = {
+	{ PCI_VDEVICE(AQUANTIA, 0x0001), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0xd107), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x07b1), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x87b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0xd108), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x08b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x88b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0xd109), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x09b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x89b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0xd100), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x00b1), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x80b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x11b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x91b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x51b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x12b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x92b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x52b1), 0 },
+	{}
 };
 
 static const struct of_device_id aquantia_of_matches[] = {
@@ -129,11 +144,11 @@ static int aqo_parse_rx_proxy_host(struct device_node *np,
 	aqo_dev->ch_rx.proxy.host_ctx.msi_data = 1 << (hwirq % 32);
 
 	aqo_log_dbg(aqo_dev,
-			"MSI irq: %u, hwirq: %u, ispendr: 0x%llx",
+			"MSI irq: %u, hwirq: %lu, ispendr: 0x%llx",
 			irq, hwirq, reg);
 	aqo_log_dbg(aqo_dev,
-			"MSI addr: 0x%lx, data: 0x%lx",
-			aqo_dev->ch_rx.proxy.host_ctx.msi_addr.paddr,
+			"MSI addr: %pa, data: 0x%x",
+			&aqo_dev->ch_rx.proxy.host_ctx.msi_addr.paddr,
 			aqo_dev->ch_rx.proxy.host_ctx.msi_data);
 
 	aqo_dev->ch_rx.proxy.host_ctx.valid = true;
@@ -229,7 +244,7 @@ static int aqo_parse_rx_ring_size(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_RING_SZ_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -265,7 +280,7 @@ static int aqo_parse_rx_buff_size(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_BUFF_SZ_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -308,7 +323,7 @@ static int aqo_parse_rx_int_mod(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_RX_INT_MOD_USECS_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -408,7 +423,7 @@ static int aqo_parse_rx_gsi_modt(struct device_node *np,
 	} else {
 		aqo_dev->ch_rx.gsi_modt = AQO_GSI_DEFAULT_RX_MODT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, aqo_dev->ch_rx.gsi_modt);
 	}
 
@@ -437,7 +452,7 @@ static int aqo_parse_tx_ring_size(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_RING_SZ_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -473,7 +488,7 @@ static int aqo_parse_tx_buff_size(struct device_node *np,
 	if (rc) {
 		val32 = AQO_AQC_BUFF_SZ_DEFAULT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, val32);
 	}
 
@@ -650,7 +665,7 @@ static int aqo_parse_tx_gsi_modt(struct device_node *np,
 	} else {
 		aqo_dev->ch_tx.gsi_modt = AQO_GSI_DEFAULT_TX_MODT;
 		aqo_log(aqo_dev,
-			"DT prop %s is missing for %s, using default %lu",
+			"DT prop %s is missing for %s, using default %u",
 			key, np->name, aqo_dev->ch_tx.gsi_modt);
 	}
 
@@ -670,8 +685,6 @@ static int aqo_parse_tx_props(struct device_node *np,
 static int __aqo_parse_dt(struct aqo_device *aqo_dev)
 {
 	int rc;
-	u32 val32;
-	const char *key;
 	struct device_node *np = aqo_dev->eth_dev->dev->of_node;
 
 	rc = aqo_parse_rx_proxies(np, aqo_dev);
@@ -729,8 +742,8 @@ static int aqo_parse_pci(struct aqo_device *aqo_dev)
 	aqo_dev->regs_base.paddr = pci_resource_start(pci_dev, 0);
 	aqo_dev->regs_base.size = pci_resource_len(pci_dev, 0);
 
-	aqo_log(aqo_dev, "PCI BAR 0 is at %p, size %zx",
-		aqo_dev->regs_base.paddr, aqo_dev->regs_base.size);
+	aqo_log(aqo_dev, "PCI BAR 0 is at %pa, size 0x%zx",
+		&aqo_dev->regs_base.paddr, aqo_dev->regs_base.size);
 
 	return 0;
 }
@@ -759,6 +772,8 @@ static int aqo_pair(struct ipa_eth_device *eth_dev)
 	aqo_dev = devm_kzalloc(eth_dev->dev, sizeof(*aqo_dev), GFP_KERNEL);
 	if (!aqo_dev)
 		return -ENOMEM;
+
+	mutex_init(&aqo_dev->ssr_mutex);
 
 	aqo_dev->eth_dev = eth_dev;
 
@@ -889,6 +904,7 @@ static int aqo_stop_tx(struct ipa_eth_device *eth_dev)
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
 
 	// TODO: check return status
+	ipa_eth_ep_stop(aqo_dev->ch_tx.eth_ch);
 	aqo_gsi_stop_tx(aqo_dev);
 	aqo_netdev_stop_tx(aqo_dev);
 
@@ -1020,6 +1036,7 @@ static int aqo_stop_rx(struct ipa_eth_device *eth_dev)
 	aqo_netdev_stop_rx(aqo_dev);
 	aqo_proxy_stop(aqo_dev);
 	aqo_gsi_stop_rx(aqo_dev);
+	ipa_eth_ep_stop(aqo_dev->ch_rx.eth_ch);
 
 	aqo_log(aqo_dev, "Stopped Rx offload");
 
@@ -1054,6 +1071,46 @@ static int aqo_clear_stats(struct ipa_eth_device *eth_dev)
 	return 0;
 }
 
+#if IPA_ETH_API_VER >= 3
+static int aqo_save_regs(struct ipa_eth_device *eth_dev,
+		void **regs, size_t *size)
+{
+	size_t num_regs;
+	struct aqo_device *aqo_dev = eth_dev->od_priv;
+	struct aqo_regs *regs_save = &aqo_dev->regs_save;
+
+	memset(regs_save, 0, sizeof(*regs_save));
+
+	num_regs = aqo_regs_save(aqo_dev, regs_save);
+	if (!num_regs)
+		return -EFAULT;
+
+	if (regs)
+		*regs = regs_save;
+
+	if (size)
+		*size = sizeof(*regs_save);
+
+	return 0;
+}
+#endif /* IPA_ETH_API_VER >= 3 */
+
+#if IPA_ETH_API_VER >= 4
+static int aqo_prepare_reset(struct ipa_eth_device *eth_dev, void *data)
+{
+	struct aqo_device *aqo_dev = eth_dev->od_priv;
+
+	return aqo_gsi_prepare_ssr(aqo_dev);
+}
+
+static int aqo_complete_reset(struct ipa_eth_device *eth_dev, void *data)
+{
+	struct aqo_device *aqo_dev = eth_dev->od_priv;
+
+	return aqo_gsi_complete_ssr(aqo_dev);
+}
+#endif /* IPA_ETH_API_VER >= 4 */
+
 static struct ipa_eth_offload_ops aqo_offload_ops = {
 	.pair = aqo_pair,
 	.unpair = aqo_unpair,
@@ -1070,6 +1127,16 @@ static struct ipa_eth_offload_ops aqo_offload_ops = {
 
 	.get_stats = aqo_get_stats,
 	.clear_stats = aqo_clear_stats,
+
+#if IPA_ETH_API_VER >= 3
+	.save_regs = aqo_save_regs,
+#endif
+
+#if IPA_ETH_API_VER >= 4
+	.prepare_reset = aqo_prepare_reset,
+	.complete_reset = aqo_complete_reset,
+#endif
+
 };
 
 static struct ipa_eth_offload_driver aqo_offload_driver = {

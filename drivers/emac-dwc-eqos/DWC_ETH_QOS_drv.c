@@ -5140,9 +5140,8 @@ static int DWC_ETH_QOS_config_pfc(struct net_device *dev,
  *
  * \retval 0: Success, -1 : Failure
  * */
-static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
+static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg)
 {
-	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	int ret = 0;
 	u64 val;
@@ -5208,6 +5207,7 @@ void Register_PPS_ISR(struct DWC_ETH_QOS_prv_data *pdata, int ch)
 			EMACERR("Req ptp_pps_avb_class_a_irq Failed ret=%d\n",ret);
 		} else {
 			EMACERR("Req ptp_pps_avb_class_a_irq pass \n");
+			pdata->en_ptp_pps_avb_class_a_irq = true;
 		}
 	} else if (ch == DWC_ETH_QOS_PPS_CH_3) {
 		ret = request_irq(pdata->res_data->ptp_pps_avb_class_b_irq, DWC_ETH_QOS_PPS_avb_class_b,
@@ -5216,6 +5216,7 @@ void Register_PPS_ISR(struct DWC_ETH_QOS_prv_data *pdata, int ch)
 			EMACERR("Req ptp_pps_avb_class_b_irq Failed ret=%d\n",ret);
 		} else {
 			EMACERR("Req ptp_pps_avb_class_b_irq pass \n");
+			pdata->en_ptp_pps_avb_class_b_irq = true;
 		}
 	} else
 		EMACERR("Invalid channel %d\n", ch);
@@ -5224,12 +5225,14 @@ void Register_PPS_ISR(struct DWC_ETH_QOS_prv_data *pdata, int ch)
 void Unregister_PPS_ISR(struct DWC_ETH_QOS_prv_data *pdata, int ch)
 {
 	if (ch == DWC_ETH_QOS_PPS_CH_2) {
-		if (pdata->res_data->ptp_pps_avb_class_a_irq != 0) {
+		if (pdata->res_data->ptp_pps_avb_class_a_irq != 0 && pdata->en_ptp_pps_avb_class_a_irq) {
 			free_irq(pdata->res_data->ptp_pps_avb_class_a_irq, pdata);
+			pdata->en_ptp_pps_avb_class_a_irq = false;
 		}
 	} else if (ch == DWC_ETH_QOS_PPS_CH_3) {
-		if (pdata->res_data->ptp_pps_avb_class_b_irq != 0) {
+		if (pdata->res_data->ptp_pps_avb_class_b_irq != 0 && pdata->en_ptp_pps_avb_class_b_irq) {
 			free_irq(pdata->res_data->ptp_pps_avb_class_b_irq, pdata);
+			pdata->en_ptp_pps_avb_class_b_irq = false;
 		}
 	} else
 		EMACERR("Invalid channel %d\n", ch);
@@ -5314,9 +5317,8 @@ void stop_pps(int ch)
  *
  * \retval 0: Success, -1 : Failure
  * */
-int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
+int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg)
 {
-	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	unsigned int val;
 	int interval, width;
@@ -5480,6 +5482,9 @@ static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct net_device *dev = pdata->dev;
 	int ret = 0;
+#ifdef CONFIG_PPS_OUTPUT
+	struct ETH_PPS_Config eth_pps_cfg;
+#endif
 
 	if (req->qinx > DWC_ETH_QOS_QUEUE_CNT) {
 		dev_alert(&pdata->pdev->dev,
@@ -5859,17 +5864,29 @@ static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 
 #ifdef CONFIG_PPS_OUTPUT
 	case DWC_ETH_QOS_CONFIG_PTPCLK_CMD:
+
+		if (copy_from_user(&eth_pps_cfg, req->ptr,
+			sizeof(struct ETH_PPS_Config))) {
+			return -EFAULT;
+		}
+
 		if(pdata->hw_feat.pps_out_num == 0)
 			ret = -EOPNOTSUPP;
 		else
-			ret = ETH_PTPCLK_Config(pdata, req);
+			ret = ETH_PTPCLK_Config(pdata, &eth_pps_cfg);
 		break;
 
 	case DWC_ETH_QOS_CONFIG_PPSOUT_CMD:
+
+		if (copy_from_user(&eth_pps_cfg, req->ptr,
+			sizeof(struct ETH_PPS_Config))) {
+			return -EFAULT;
+		}
+
 		if(pdata->hw_feat.pps_out_num == 0)
 			ret = -EOPNOTSUPP;
 		else
-			ret = ETH_PPSOUT_Config(pdata, req);
+			ret = ETH_PPSOUT_Config(pdata, &eth_pps_cfg);
 		break;
 #endif
 
@@ -6227,9 +6244,7 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct ifr_data_struct req;
-#ifdef CONFIG_PPS_OUTPUT
-	struct ETH_PPS_Config eth_pps_cfg;
-#endif
+
 	struct mii_ioctl_data *data = if_mii(ifr);
 	unsigned int reg_val = 0;
 	int ret = 0;
@@ -6271,13 +6286,6 @@ static int DWC_ETH_QOS_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	   if (copy_from_user(&req, ifr->ifr_ifru.ifru_data,
 			   sizeof(struct ifr_data_struct)))
 			return -EFAULT;
-#ifdef CONFIG_PPS_OUTPUT
-		if (copy_from_user(&eth_pps_cfg, req.ptr,
-			sizeof(struct ETH_PPS_Config))) {
-			return -EFAULT;
-		}
-		req.ptr = &eth_pps_cfg;
-#endif
 		ret = DWC_ETH_QOS_handle_prv_ioctl(pdata, &req);
 		req.command_error = ret;
 
