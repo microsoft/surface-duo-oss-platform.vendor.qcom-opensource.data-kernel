@@ -2454,6 +2454,7 @@ inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb, UINT eth_type,
 {
 	UINT ret = DEFAULT_INT_MOD;
 	static int first_tx_pkt_kpi = 0;
+	bool is_udp;
 
 	if (first_tx_pkt_kpi++ == 0)
 		return ret;
@@ -2467,8 +2468,11 @@ inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb, UINT eth_type,
 		ret = AVB_INT_MOD;
 	} else if (eth_type == ETH_P_IP || eth_type == ETH_P_IPV6) {
 #ifdef DWC_ETH_QOS_CONFIG_PTP
-		if (udp_hdr(skb)->dest == htons(PTP_UDP_EV_PORT)
-			|| udp_hdr(skb)->dest == htons(PTP_UDP_GEN_PORT)) {
+		is_udp = (eth_type == ETH_P_IP && ip_hdr(skb)->protocol == IPPROTO_UDP)
+						|| (eth_type == ETH_P_IPV6 && ipv6_hdr(skb)->nexthdr == IPPROTO_UDP);
+
+		if (is_udp && (udp_hdr(skb)->dest == htons(PTP_UDP_EV_PORT)
+			|| udp_hdr(skb)->dest == htons(PTP_UDP_GEN_PORT))) {
 			ret = PTP_INT_MOD;
 		} else
 #endif
