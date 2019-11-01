@@ -2272,7 +2272,12 @@ static int DWC_ETH_QOS_probe(struct platform_device *pdev)
 		if (ret)
 			goto err_out_dev_failed;
 	}
-	EMACDBG("<-- DWC_ETH_QOS_probe\n");
+
+#if defined DWC_ETH_QOS_BUILTIN && defined CONFIG_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet probe end");
+#endif
+	EMACKPI("M - Ethernet probe end");
+
 	return ret;
 
  err_out_dev_failed:
