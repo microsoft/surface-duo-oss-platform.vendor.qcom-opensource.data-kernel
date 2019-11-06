@@ -858,6 +858,9 @@ static int aqo_init_tx(struct ipa_eth_device *eth_dev)
 err_netdev_init_ev:
 	aqo_gsi_deinit_tx(aqo_dev);
 err_gsi_init:
+#if IPA_ETH_API_VER >= 6
+	ipa_eth_ep_deinit(aqo_dev->ch_tx.eth_ch);
+#endif
 err_ep_init:
 	aqo_netdev_deinit_tx_channel(aqo_dev);
 err_netdev_init_ch:
@@ -868,6 +871,7 @@ static int aqo_start_tx(struct ipa_eth_device *eth_dev)
 {
 	int rc = 0;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
+	struct ipa_eth_channel *eth_ch = aqo_dev->ch_tx.eth_ch;
 
 	rc = aqo_netdev_start_tx(aqo_dev);
 	if (rc) {
@@ -881,7 +885,7 @@ static int aqo_start_tx(struct ipa_eth_device *eth_dev)
 		goto err_gsi_start;
 	}
 
-	rc = ipa_eth_ep_start(aqo_dev->ch_tx.eth_ch);
+	rc = ipa_eth_ep_start(eth_ch);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to start Tx IPA endpoint");
 		goto err_ep_start;
@@ -902,9 +906,10 @@ err_netdev_start:
 static int aqo_stop_tx(struct ipa_eth_device *eth_dev)
 {
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
+	struct ipa_eth_channel *eth_ch = aqo_dev->ch_tx.eth_ch;
 
 	// TODO: check return status
-	ipa_eth_ep_stop(aqo_dev->ch_tx.eth_ch);
+	ipa_eth_ep_stop(eth_ch);
 	aqo_gsi_stop_tx(aqo_dev);
 	aqo_netdev_stop_tx(aqo_dev);
 
@@ -916,10 +921,16 @@ static int aqo_stop_tx(struct ipa_eth_device *eth_dev)
 static int aqo_deinit_tx(struct ipa_eth_device *eth_dev)
 {
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
+#if IPA_ETH_API_VER >= 6
+	struct ipa_eth_channel *eth_ch = aqo_dev->ch_tx.eth_ch;
+#endif
 
 	// TODO: check return status
 	aqo_netdev_deinit_tx_event(aqo_dev);
 	aqo_gsi_deinit_tx(aqo_dev);
+#if IPA_ETH_API_VER >= 6
+	ipa_eth_ep_deinit(eth_ch);
+#endif
 	aqo_netdev_deinit_tx_channel(aqo_dev);
 
 	aqo_log(aqo_dev, "Deinitialized Tx offload");
@@ -971,6 +982,9 @@ err_netdev_init_ev:
 err_proxy_init:
 	aqo_gsi_deinit_rx(aqo_dev);
 err_gsi_init:
+#if IPA_ETH_API_VER >= 6
+	ipa_eth_ep_deinit(aqo_dev->ch_rx.eth_ch);
+#endif
 err_ep_init:
 	aqo_netdev_deinit_rx_channel(aqo_dev);
 err_netdev_init_ch:
@@ -981,8 +995,9 @@ static int aqo_start_rx(struct ipa_eth_device *eth_dev)
 {
 	int rc = 0;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
+	struct ipa_eth_channel *eth_ch = aqo_dev->ch_rx.eth_ch;
 
-	rc = ipa_eth_ep_start(aqo_dev->ch_rx.eth_ch);
+	rc = ipa_eth_ep_start(eth_ch);
 	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to start Rx IPA endpoint");
 		goto err_ep_start;
@@ -1023,6 +1038,7 @@ err_netdev_start:
 err_proxy_start:
 	aqo_gsi_stop_rx(aqo_dev);
 err_gsi_start:
+	ipa_eth_ep_stop(eth_ch);
 err_ep_start:
 	return rc;
 }
@@ -1030,13 +1046,14 @@ err_ep_start:
 static int aqo_stop_rx(struct ipa_eth_device *eth_dev)
 {
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
+	struct ipa_eth_channel *eth_ch = aqo_dev->ch_rx.eth_ch;
 
 	// TODO: check return status
 	aqo_netdev_rxflow_reset(aqo_dev);
 	aqo_netdev_stop_rx(aqo_dev);
 	aqo_proxy_stop(aqo_dev);
 	aqo_gsi_stop_rx(aqo_dev);
-	ipa_eth_ep_stop(aqo_dev->ch_rx.eth_ch);
+	ipa_eth_ep_stop(eth_ch);
 
 	aqo_log(aqo_dev, "Stopped Rx offload");
 
@@ -1046,11 +1063,17 @@ static int aqo_stop_rx(struct ipa_eth_device *eth_dev)
 static int aqo_deinit_rx(struct ipa_eth_device *eth_dev)
 {
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
+#if IPA_ETH_API_VER >= 6
+	struct ipa_eth_channel *eth_ch = aqo_dev->ch_rx.eth_ch;
+#endif
 
 	// TODO: check return status
 	aqo_netdev_deinit_rx_event(aqo_dev);
 	aqo_proxy_deinit(aqo_dev);
 	aqo_gsi_deinit_rx(aqo_dev);
+#if IPA_ETH_API_VER >= 6
+	ipa_eth_ep_deinit(eth_ch);
+#endif
 	aqo_netdev_deinit_rx_channel(aqo_dev);
 
 	aqo_log(aqo_dev, "Deinitialized Rx offload");
