@@ -776,8 +776,10 @@ static int DWC_ETH_QOS_ipa_offload_init(struct DWC_ETH_QOS_prv_data *pdata)
 		eth_l2_hdr_v6.h_proto = htons(ETH_P_IPV6);
 		in.hdr_info[0].hdr = (u8 *)&eth_l2_hdr_v4;
 		in.hdr_info[0].hdr_len = ETH_HLEN;
+		in.hdr_info[0].hdr_type = IPA_HDR_L2_ETHERNET_II;
 		in.hdr_info[1].hdr = (u8 *)&eth_l2_hdr_v6;
 		in.hdr_info[1].hdr_len = ETH_HLEN;
+		in.hdr_info[1].hdr_type = IPA_HDR_L2_ETHERNET_II;
 	}
 
 #ifdef DWC_ETH_QOS_ENABLE_VLAN_TAG
@@ -790,11 +792,13 @@ static int DWC_ETH_QOS_ipa_offload_init(struct DWC_ETH_QOS_prv_data *pdata)
 		eth_vlan_hdr_v4.h_vlan_encapsulated_proto = htons(ETH_P_IP);
 		in.hdr_info[0].hdr = (u8 *)&eth_vlan_hdr_v4;
 		in.hdr_info[0].hdr_len = VLAN_ETH_HLEN;
+		in.hdr_info[0].hdr_type = IPA_HDR_L2_802_1Q;
 		memcpy(&eth_vlan_hdr_v6.h_source, pdata->dev->dev_addr, ETH_ALEN);
 		eth_vlan_hdr_v6.h_vlan_proto = htons(ETH_P_8021Q);
 		eth_vlan_hdr_v6.h_vlan_encapsulated_proto = htons(ETH_P_IPV6);
 		in.hdr_info[1].hdr = (u8 *)&eth_vlan_hdr_v6;
 		in.hdr_info[1].hdr_len = VLAN_ETH_HLEN;
+		in.hdr_info[1].hdr_type = IPA_HDR_L2_802_1Q;
 	}
 #endif
 
@@ -804,9 +808,7 @@ static int DWC_ETH_QOS_ipa_offload_init(struct DWC_ETH_QOS_prv_data *pdata)
 	in.notify = ntn_ipa_notify_cb;
 	in.proto = IPA_UC_NTN;
 	in.hdr_info[0].dst_mac_addr_offset = 0;
-	in.hdr_info[0].hdr_type = IPA_HDR_L2_ETHERNET_II;
 	in.hdr_info[1].dst_mac_addr_offset = 0;
-	in.hdr_info[1].hdr_type = IPA_HDR_L2_ETHERNET_II;
 
 	ret = ipa_uc_offload_reg_intf(&in, &out);
 	if (ret) {
