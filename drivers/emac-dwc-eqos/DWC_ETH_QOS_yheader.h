@@ -429,7 +429,8 @@
 #define DWC_ETH_QOS_SYSCLOCK	250000000 /* System clock is 250MHz */
 #define DWC_ETH_QOS_SYSTIMEPERIOD	4 /* System time period is 4ns */
 
-#define DWC_ETH_QOS_DEFAULT_PTP_CLOCK 50000000
+#define DWC_ETH_QOS_DEFAULT_PTP_CLOCK    96000000
+#define DWC_ETH_QOS_DEFAULT_LPASS_PPS_FREQUENCY 19200000
 
 #define DWC_ETH_QOS_TX_QUEUE_CNT (pdata->tx_queue_cnt)
 #define DWC_ETH_QOS_RX_QUEUE_CNT (pdata->rx_queue_cnt)
@@ -437,6 +438,16 @@
 
 #define DWC_ETH_QOS_TXQ_CNT 5
 #define DWC_ETH_QOS_RXQ_CNT 4
+
+/* PPS */
+#define AVB_CLASS_A_POLL_DEV_NODE_NAME "avb_class_a_intr"
+#define AVB_CLASS_B_POLL_DEV_NODE_NAME "avb_class_b_intr"
+#define DWC_ETH_QOS_PPS_STOP 0
+#define DWC_ETH_QOS_PPS_START 1
+#define DWC_ETH_QOS_PPS_CH_0 0
+#define DWC_ETH_QOS_PPS_CH_1 1
+#define DWC_ETH_QOS_PPS_CH_2 2
+#define DWC_ETH_QOS_PPS_CH_3 3
 
 /* Helper macros for TX descriptor handling */
 #define GET_TX_QUEUE_PTR(QINX) (&pdata->tx_queue[(QINX)])
@@ -1004,6 +1015,7 @@ struct hw_if_struct {
 	/* for hw time stamping */
 	INT(*config_hw_time_stamping)(UINT);
 	INT(*config_sub_second_increment)(unsigned long ptp_clock);
+	INT(*config_default_addend)(struct DWC_ETH_QOS_prv_data *pdata, unsigned long ptp_clock);
 	INT(*init_systime)(UINT, UINT);
 	INT(*config_addend)(UINT);
 	INT(*adjust_systime)(UINT, UINT, INT, bool);
@@ -1562,6 +1574,8 @@ struct DWC_ETH_QOS_res_data {
 	u32 rgmii_mem_size;
 	u32 sbd_intr;
 	u32 lpi_intr;
+	u32 ptp_pps_avb_class_a_irq;
+	u32 ptp_pps_avb_class_b_irq;
 	u32 io_macro_tx_mode_non_id;
 	IO_MACRO_PHY_MODE io_macro_phy_intf;
 	u32 phy_intr;
@@ -1592,6 +1606,7 @@ struct DWC_ETH_QOS_res_data {
 	u32 bit_mask;
 	bool is_bit_mask;
 	bool early_eth_en;
+	bool pps_lpass_conn_en;
 };
 
 struct DWC_ETH_QOS_prv_ipa_data {
@@ -1641,7 +1656,8 @@ struct DWC_ETH_QOS_prv_data {
 	/* Module parameter to check if PHY interrupt should be
 	enabled. Default value is true. */
 	bool enable_phy_intr;
-
+	bool en_ptp_pps_avb_class_a_irq;
+	bool en_ptp_pps_avb_class_b_irq;
 	struct msm_bus_scale_pdata *bus_scale_vec;
 	uint32_t bus_hdl;
 	u32 rgmii_clk_rate;
@@ -1874,6 +1890,20 @@ struct DWC_ETH_QOS_prv_data {
 	bool jumbo_frame_supported;
 	bool print_kpi;
 	struct delayed_work ipv6_addr_assign_wq;
+
+	ULONG avb_class_a_intr_cnt;
+	ULONG avb_class_b_intr_cnt;
+
+
+	/* avb_class_a dev node variables*/
+	dev_t avb_class_a_dev_t;
+	struct cdev* avb_class_a_cdev;
+	struct class* avb_class_a_class;
+
+	/* avb_class_b dev node variables*/
+	dev_t avb_class_b_dev_t;
+	struct cdev* avb_class_b_cdev;
+	struct class* avb_class_b_class;
 };
 
 struct ip_params {
