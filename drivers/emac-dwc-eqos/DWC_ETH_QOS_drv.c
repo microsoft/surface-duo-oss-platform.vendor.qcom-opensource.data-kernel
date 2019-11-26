@@ -2453,6 +2453,11 @@ inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb, UINT eth_type,
 	struct DWC_ETH_QOS_prv_data *pdata)
 {
 	UINT ret = DEFAULT_INT_MOD;
+	bool is_udp;
+	static int first_tx_pkt_kpi = 0;
+
+	if (first_tx_pkt_kpi++ == 0)
+		return ret;
 
 #ifdef DWC_ETH_QOS_CONFIG_PTP
 	if (eth_type == ETH_P_1588)
@@ -2463,8 +2468,11 @@ inline UINT DWC_ETH_QOS_cal_int_mod(struct sk_buff *skb, UINT eth_type,
 		ret = AVB_INT_MOD;
 	} else if (eth_type == ETH_P_IP || eth_type == ETH_P_IPV6) {
 #ifdef DWC_ETH_QOS_CONFIG_PTP
-		if (udp_hdr(skb)->dest == htons(PTP_UDP_EV_PORT)
-			|| udp_hdr(skb)->dest == htons(PTP_UDP_GEN_PORT)) {
+		is_udp = (eth_type == ETH_P_IP && ip_hdr(skb)->protocol == IPPROTO_UDP)
+						|| (eth_type == ETH_P_IPV6 && ipv6_hdr(skb)->nexthdr == IPPROTO_UDP);
+
+		if (is_udp && (udp_hdr(skb)->dest == htons(PTP_UDP_EV_PORT)
+			|| udp_hdr(skb)->dest == htons(PTP_UDP_GEN_PORT))) {
 			ret = PTP_INT_MOD;
 		} else
 #endif
@@ -2507,7 +2515,7 @@ static int DWC_ETH_QOS_start_xmit(struct sk_buff *skb, struct net_device *dev)
 #endif
 	int tso;
 	struct netdev_queue *devq = netdev_get_tx_queue(dev, qinx);
-	UINT int_mod = 1;
+	UINT int_mod = DEFAULT_INT_MOD;
 	UINT eth_type = 0;
 
 
@@ -2993,11 +3001,11 @@ static void DWC_ETH_QOS_tx_interrupt(struct net_device *dev,
 			pdata->xstats.q_tx_pkt_n[qinx]++;
 			pdata->xstats.tx_pkt_n++;
 			dev->stats.tx_packets++;
-#ifdef CONFIG_MSM_BOOT_TIME_MARKER
-	if ( dev->stats.tx_packets == 1) {
-		place_marker("M - Ethernet first packet transmitted");
-		EMACINFO("Transmitted First Rx packet\n");
-	}
+#if defined(DWC_ETH_QOS_BUILTIN) && defined(CONFIG_MSM_BOOT_TIME_MARKER)
+			if ( dev->stats.tx_packets == 1) {
+				place_marker("M - Ethernet first packet transmitted");
+				EMACKPI("M - Ethernet first packet transmitted");
+			}
 #endif
 		}
 #else
@@ -3940,6 +3948,7 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 #ifdef CONFIG_MSM_BOOT_TIME_MARKER
 				if ( dev->stats.rx_packets == 1) {
 					place_marker("M - Ethernet first packet received");
+					EMACKPI("M - Ethernet first packet received");
 				}
 #endif
 			} else {
