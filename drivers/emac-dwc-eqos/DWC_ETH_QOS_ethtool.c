@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -745,15 +745,16 @@ static int DWC_ETH_QOS_setsettings(struct net_device *dev,
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
-	unsigned int speed;
+	unsigned int cmd_speed;
 	/* unsigned int pause, duplex, speed; */
 	/* unsigned int lp_pause, lp_duplex; */
 	int ret = 0;
 
-	pr_alert("-->DWC_ETH_QOS_setsettings\n");
+	EMACDBG("-->DWC_ETH_QOS_setsettings\n");
 
+	cmd_speed = ethtool_cmd_speed(cmd);
+	EMACDBG("speed: %u cmd->autoneg: %d\n", cmd_speed, cmd->autoneg);
 	if (pdata->hw_feat.pcs_sel) {
-		speed = ethtool_cmd_speed(cmd);
 
 		/* verify the settings we care about */
 		if ((cmd->autoneg != AUTONEG_ENABLE) &&
@@ -781,7 +782,8 @@ static int DWC_ETH_QOS_setsettings(struct net_device *dev,
 		mutex_lock(&pdata->mlock);
 
 		/* Half duplex is not supported */
-		if (cmd->duplex != DUPLEX_FULL) {
+		if ((cmd->duplex != DUPLEX_FULL) ||
+			(cmd_speed == SPEED_1000 && cmd->autoneg == AUTONEG_DISABLE)) {
 			ret = -EINVAL;
 		} else {
 			if (cmd->autoneg == AUTONEG_ENABLE &&
@@ -798,7 +800,7 @@ static int DWC_ETH_QOS_setsettings(struct net_device *dev,
 		mutex_unlock(&pdata->mlock);
 	}
 
-	pr_alert("<--DWC_ETH_QOS_setsettings\n");
+	EMACDBG("<--DWC_ETH_QOS_setsettings speed: %d cmd->autoneg: %d\n", cmd_speed, cmd->autoneg);
 
 	return ret;
 }
