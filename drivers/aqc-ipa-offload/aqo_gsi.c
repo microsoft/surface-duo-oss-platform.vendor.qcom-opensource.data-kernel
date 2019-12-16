@@ -732,17 +732,21 @@ int __aqo_gsi_prepare_ssr(struct aqo_device *aqo_dev)
 
 int aqo_gsi_prepare_ssr(struct aqo_device *aqo_dev)
 {
-	int rc = -EFAULT;
+	int rc;
 
 	aqo_log(aqo_dev, "Device in SSR, preparing to reset GSI");
 
 	mutex_lock(&aqo_dev->ssr_mutex);
 
-	if (!test_and_set_bit(AQO_DEV_S_IN_SSR, &aqo_dev->state))
-		rc = __aqo_gsi_prepare_ssr(aqo_dev);
-	else
-		aqo_log_bug(aqo_dev,
-			"SSR PREPARE event received in the middle of SSR");
+	if (test_and_set_bit(AQO_DEV_S_IN_SSR, &aqo_dev->state)) {
+		aqo_log(aqo_dev,
+			"Skipping SSR PREPARE event received while in SSR");
+
+		mutex_unlock(&aqo_dev->ssr_mutex);
+		return 0;
+	}
+
+	rc = __aqo_gsi_prepare_ssr(aqo_dev);
 
 	mutex_unlock(&aqo_dev->ssr_mutex);
 
@@ -784,7 +788,7 @@ static int __aqo_gsi_complete_ssr(struct aqo_device *aqo_dev)
 
 int aqo_gsi_complete_ssr(struct aqo_device *aqo_dev)
 {
-	int rc = -EFAULT;
+	int rc;
 
 	aqo_log(aqo_dev, "Device is ready, preparing to resume GSI");
 
@@ -793,11 +797,15 @@ int aqo_gsi_complete_ssr(struct aqo_device *aqo_dev)
 	/* Clear SSR flag before unlocking mutex so that a resuming thread
 	 * would start with the updated state.
 	 */
-	if (test_and_clear_bit(AQO_DEV_S_IN_SSR, &aqo_dev->state))
-		rc = __aqo_gsi_complete_ssr(aqo_dev);
-	else
-		aqo_log_bug(aqo_dev,
-			"SSR COMPLETE event received when not in SSR");
+	if (!test_and_clear_bit(AQO_DEV_S_IN_SSR, &aqo_dev->state)) {
+		aqo_log(aqo_dev,
+			"Skipping SSR COMPLETE event received outside SSR");
+
+		mutex_unlock(&aqo_dev->ssr_mutex);
+		return 0;
+	}
+
+	rc = __aqo_gsi_complete_ssr(aqo_dev);
 
 	mutex_unlock(&aqo_dev->ssr_mutex);
 
