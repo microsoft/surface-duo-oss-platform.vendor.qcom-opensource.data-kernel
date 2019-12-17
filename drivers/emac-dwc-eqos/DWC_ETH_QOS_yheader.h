@@ -1905,6 +1905,7 @@ struct DWC_ETH_QOS_prv_data {
 
 	bool jumbo_frame_supported;
 	struct delayed_work ipv6_addr_assign_wq;
+	bool wol_enabled;
 };
 
 struct ip_params {
