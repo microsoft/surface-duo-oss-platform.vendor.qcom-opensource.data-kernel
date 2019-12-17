@@ -1925,6 +1925,7 @@ struct DWC_ETH_QOS_prv_data {
 	struct DWC_ETH_QOS_avb_algorithm l_avb_struct_class_b;
 	bool is_class_b_avb_algo_stored;
 	int avb_algorithm_speed_backup;
+	bool wol_enabled;
 };
 
 struct ip_params {
