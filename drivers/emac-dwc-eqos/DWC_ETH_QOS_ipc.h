@@ -75,6 +75,14 @@ do {\
 		__func__, __LINE__, ## args); \
 	} \
 }while(0)
+#define EMACKPI(fmt, args...) \
+do {\
+	pr_info_once(DRV_NAME " %s:%d" fmt, __func__, __LINE__, ## args);\
+	if (ipc_emac_log_ctxt) { \
+		ipc_log_string(ipc_emac_log_ctxt, \
+		"KPI %s[%u]:" fmt, __func__, __LINE__, ## args); \
+	} \
+}while(0)
 
 #define IPC_LOW(fmt, args...) \
 do {\
