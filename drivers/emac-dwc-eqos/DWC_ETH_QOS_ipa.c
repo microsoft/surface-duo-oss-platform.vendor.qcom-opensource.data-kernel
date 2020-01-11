@@ -525,7 +525,7 @@ static int DWC_ETH_QOS_ipa_offload_resume(struct DWC_ETH_QOS_prv_data *pdata)
 
 static int DWC_ETH_QOS_ipa_ready(struct DWC_ETH_QOS_prv_data *pdata)
 {
-	int ret;
+	int ret = 0 ;
 
 	EMACDBG("Enter \n");
 
@@ -684,15 +684,19 @@ static void ntn_ipa_notify_cb(void *priv, enum ipa_dp_evt_type evt,
 
 		/* Submit packet to network stack */
 		/* If its a ping packet submit it via rx_ni else use rx */
-		if (ip_hdr->protocol == IPPROTO_ICMP) {
-			stat = netif_rx_ni(skb);
-		} else if ((pdata->dev->stats.rx_packets %
-				IPA_ETH_RX_SOFTIRQ_THRESH) == 0){
-			stat = netif_rx_ni(skb);
+		/* If NAPI is enabled call receive_skb */
+		if(ipa_get_lan_rx_napi()){
+			stat = netif_receive_skb(skb);
 		} else {
-			stat = netif_rx(skb);
+			if (ip_hdr->protocol == IPPROTO_ICMP) {
+				stat = netif_rx_ni(skb);
+			} else if ((pdata->dev->stats.rx_packets %
+				IPA_ETH_RX_SOFTIRQ_THRESH) == 0){
+				stat = netif_rx_ni(skb);
+			} else {
+				stat = netif_rx(skb);
+			}
 		}
-
 		if(stat == NET_RX_DROP) {
 			pdata->dev->stats.rx_dropped++;
 		} else {
@@ -960,8 +964,8 @@ static int DWC_ETH_QOS_ipa_offload_connect(struct DWC_ETH_QOS_prv_data *pdata)
 	struct DWC_ETH_QOS_prv_ipa_data *ntn_ipa = &pdata->prv_ipa;
 	struct ipa_uc_offload_conn_in_params in;
 	struct ipa_uc_offload_conn_out_params out;
-	struct ipa_ntn_setup_info rx_setup_info;
-	struct ipa_ntn_setup_info tx_setup_info;
+	struct ipa_ntn_setup_info rx_setup_info = {0};
+	struct ipa_ntn_setup_info tx_setup_info = {0};
 	struct ipa_perf_profile profile;
 	int ret = 0;
 	int i = 0;
