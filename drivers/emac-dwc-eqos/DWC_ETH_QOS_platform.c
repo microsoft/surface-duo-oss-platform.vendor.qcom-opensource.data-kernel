@@ -1754,6 +1754,7 @@ static void DWC_ETH_QOS_read_mac_addr_from_config(void)
 	char *file_path = MAC_ADDR_CFG_FPATH;
 	loff_t size = 0;
 	loff_t max_size = 30;
+	char mac_str[30] = {0};
 
 	EMACDBG("Enter\n");
 
@@ -1764,8 +1765,10 @@ static void DWC_ETH_QOS_read_mac_addr_from_config(void)
 		EMACINFO("unable to open file: %s (%d)\n", file_path, ret);
 		goto ret;
 	}
+	/* Copy Mac address as NUll terminating string */
+	memcpy(mac_str, (char *)data, size);
 
-	if (!mac_pton(data, config_dev_addr) && !is_valid_ether_addr(config_dev_addr)) {
+	if (!mac_pton(mac_str, config_dev_addr) && !is_valid_ether_addr(config_dev_addr)) {
 		EMACERR("Invalid mac addr found in emac_config.ini\n");
 		goto ret;
 	}
