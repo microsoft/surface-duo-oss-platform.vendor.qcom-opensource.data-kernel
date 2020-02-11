@@ -2750,7 +2750,7 @@ static void __exit DWC_ETH_QOS_exit_module(void)
  * entry function returns and the module does nothing until the kernel wants
  * to do something with the code that the module provides.
  */
-module_init(DWC_ETH_QOS_init_module);
+early_module_init(DWC_ETH_QOS_init_module, EARLY_SUBSYS_4, EARLY_INIT_LEVEL3);
 
 /*!
  * \brief Macro to register the driver un-registration function.

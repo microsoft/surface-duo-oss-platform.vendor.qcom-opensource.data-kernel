@@ -46,5 +46,5 @@ static void __exit DWC_ETH_QOS_app_cleanup (void)
 }
 
 
-module_init(DWC_ETH_QOS_app_init);
+early_module_init(DWC_ETH_QOS_app_init, EARLY_SUBSYS_4, EARLY_INIT_LEVEL3);
 module_exit(DWC_ETH_QOS_app_cleanup);
