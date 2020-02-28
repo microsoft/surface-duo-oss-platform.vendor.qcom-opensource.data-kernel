@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,23 +30,19 @@ MODULE_LICENSE("GPL v2");
 #define RMNET_SHS_MIN_HSTAT_NODES_REQD 16
 
 #define PERIODIC_CLEAN 0
-/* FORCE_CLEAN should only used during module de-ini.*/
+/* FORCE_CLEAN should only used during module de-init.*/
 #define FORCE_CLEAN 1
-/* Time to wait (in time ticks) before re-triggering the workqueue
- *	1   tick  = 10 ms (Maximum possible resolution)
- *	100 ticks = 1 second
- */
 
 /* Local Definitions and Declarations */
 unsigned int rmnet_shs_cpu_prio_dur __read_mostly = 3;
 module_param(rmnet_shs_cpu_prio_dur, uint, 0644);
-MODULE_PARM_DESC(rmnet_shs_cpu_prio_dur, "Priority ignore duration(ticks)");
+MODULE_PARM_DESC(rmnet_shs_cpu_prio_dur, "Priority ignore duration (wq intervals)");
 
 #define PRIO_BACKOFF ((!rmnet_shs_cpu_prio_dur) ? 2 : rmnet_shs_cpu_prio_dur)
 
-unsigned int rmnet_shs_wq_frequency __read_mostly = RMNET_SHS_WQ_DELAY_TICKS;
-module_param(rmnet_shs_wq_frequency, uint, 0644);
-MODULE_PARM_DESC(rmnet_shs_wq_frequency, "Priodicity of Wq trigger(in ticks)");
+unsigned int rmnet_shs_wq_interval_ms __read_mostly = RMNET_SHS_WQ_INTERVAL_MS;
+module_param(rmnet_shs_wq_interval_ms, uint, 0644);
+MODULE_PARM_DESC(rmnet_shs_wq_interval_ms, "Interval between wq runs (ms)");
 
 unsigned long rmnet_shs_max_flow_inactivity_sec __read_mostly =
 						RMNET_SHS_MAX_SKB_INACTIVE_TSEC;
@@ -177,8 +173,7 @@ static struct rmnet_shs_wq_rx_flow_s rmnet_shs_rx_flow_tbl;
 static struct list_head rmnet_shs_wq_hstat_tbl =
 				LIST_HEAD_INIT(rmnet_shs_wq_hstat_tbl);
 static int rmnet_shs_flow_dbg_stats_idx_cnt;
-static struct list_head rmnet_shs_wq_ep_tbl =
-				LIST_HEAD_INIT(rmnet_shs_wq_ep_tbl);
+struct list_head rmnet_shs_wq_ep_tbl = LIST_HEAD_INIT(rmnet_shs_wq_ep_tbl);
 
 /* Helper functions to add and remove entries to the table
  * that maintains a list of all endpoints (vnd's) available on this device.
@@ -538,6 +533,17 @@ void rmnet_shs_wq_update_hstat_rps_msk(struct rmnet_shs_wq_hstat_s *hstat_p)
 			hstat_p->rps_config_msk = ep->rps_config_msk;
 			hstat_p->def_core_msk = ep->default_core_msk;
 			hstat_p->pri_core_msk = ep->pri_core_msk;
+
+			/* Update ep tput stats while we're here */
+			if (hstat_p->skb_tport_proto == IPPROTO_TCP) {
+				rm_err("SHS_UDP: adding TCP bps %lu to ep_total %lu ep name %s",
+				       hstat_p->rx_bps, ep->tcp_rx_bps, node_p->dev->name);
+				ep->tcp_rx_bps += hstat_p->rx_bps;
+			} else if (hstat_p->skb_tport_proto == IPPROTO_UDP) {
+				rm_err("SHS_UDP: adding UDP rx_bps %lu to ep_total %lu ep name %s",
+				       hstat_p->rx_bps, ep->udp_rx_bps, node_p->dev->name);
+				ep->udp_rx_bps += hstat_p->rx_bps;
+			}
 			break;
 		}
 	}
@@ -1234,6 +1240,7 @@ int rmnet_shs_wq_check_cpu_move_for_ep(u16 current_cpu, u16 dest_cpu,
 int rmnet_shs_wq_try_to_move_flow(u16 cur_cpu, u16 dest_cpu, u32 hash_to_move,
 				  u32 sugg_type)
 {
+	unsigned long flags;
 	struct rmnet_shs_wq_ep_s *ep;
 
 	if (cur_cpu >= MAX_CPUS || dest_cpu >= MAX_CPUS) {
@@ -1245,6 +1252,7 @@ int rmnet_shs_wq_try_to_move_flow(u16 cur_cpu, u16 dest_cpu, u32 hash_to_move,
 	 * on it if is online, rps mask, isolation, etc. then make
 	 * suggestion to change the cpu for the flow by passing its hash
 	 */
+	spin_lock_irqsave(&rmnet_shs_ep_lock, flags);
 	list_for_each_entry(ep, &rmnet_shs_wq_ep_tbl, ep_list_id) {
 		if (!ep)
 			continue;
@@ -1266,9 +1274,13 @@ int rmnet_shs_wq_try_to_move_flow(u16 cur_cpu, u16 dest_cpu, u32 hash_to_move,
 			rm_err("SHS_FDESC: >> flow 0x%x was suggested to"
 			       " move from cpu[%d] to cpu[%d] sugg_type [%d]",
 			       hash_to_move, cur_cpu, dest_cpu, sugg_type);
+
+			spin_unlock_irqrestore(&rmnet_shs_ep_lock, flags);
 			return 1;
 		}
 	}
+
+	spin_unlock_irqrestore(&rmnet_shs_ep_lock, flags);
 	return 0;
 }
 
@@ -1277,8 +1289,10 @@ int rmnet_shs_wq_set_flow_segmentation(u32 hash_to_set, u8 seg_enable)
 {
 	struct rmnet_shs_skbn_s *node_p;
 	struct rmnet_shs_wq_hstat_s *hstat_p;
+	unsigned long ht_flags;
 	u16 bkt;
 
+	spin_lock_irqsave(&rmnet_shs_ht_splock, ht_flags);
 	hash_for_each(RMNET_SHS_HT, bkt, node_p, list) {
 		if (!node_p)
 			continue;
@@ -1300,8 +1314,10 @@ int rmnet_shs_wq_set_flow_segmentation(u32 hash_to_set, u8 seg_enable)
 				0xDEF, 0xDEF, hstat_p, NULL);
 
 		node_p->hstats->segment_enable = seg_enable;
+		spin_unlock_irqrestore(&rmnet_shs_ht_splock, ht_flags);
 		return 1;
 	}
+	spin_unlock_irqrestore(&rmnet_shs_ht_splock, ht_flags);
 
 	rm_err("SHS_HT: >> segmentation on hash 0x%x enable %u not set - hash not found",
 	       hash_to_set, seg_enable);
@@ -1446,6 +1462,7 @@ void rmnet_shs_wq_eval_cpus_caps_and_flows(struct list_head *cpu_caps,
 	rmnet_shs_wq_mem_update_cached_cpu_caps(cpu_caps);
 	rmnet_shs_wq_mem_update_cached_sorted_gold_flows(gold_flows);
 	rmnet_shs_wq_mem_update_cached_sorted_ss_flows(ss_flows);
+	rmnet_shs_wq_mem_update_cached_netdevs();
 
 	rmnet_shs_genl_send_int_to_userspace_no_info(RMNET_SHS_SYNC_RESP_INT);
 
@@ -1876,6 +1893,11 @@ void rmnet_shs_wq_refresh_ep_masks(void)
 		if (!ep->is_ep_active)
 			continue;
 		rmnet_shs_wq_update_ep_rps_msk(ep);
+
+		/* These tput totals get re-added as we go through each flow */
+		ep->udp_rx_bps = 0;
+		ep->tcp_rx_bps = 0;
+
 	}
 }
 
@@ -1954,6 +1976,7 @@ void rmnet_shs_wq_update_stats(void)
 void rmnet_shs_wq_process_wq(struct work_struct *work)
 {
 	unsigned long flags;
+	unsigned long jiffies;
 
 	trace_rmnet_shs_wq_high(RMNET_SHS_WQ_PROCESS_WQ,
 				RMNET_SHS_WQ_PROCESS_WQ_START,
@@ -1967,8 +1990,10 @@ void rmnet_shs_wq_process_wq(struct work_struct *work)
         rmnet_shs_wq_cleanup_hash_tbl(PERIODIC_CLEAN);
         rmnet_shs_wq_debug_print_flows();
 
+	jiffies = msecs_to_jiffies(rmnet_shs_wq_interval_ms);
+
 	queue_delayed_work(rmnet_shs_wq, &rmnet_shs_delayed_wq->wq,
-					rmnet_shs_wq_frequency);
+			   jiffies);
 
 	trace_rmnet_shs_wq_high(RMNET_SHS_WQ_PROCESS_WQ,
 				RMNET_SHS_WQ_PROCESS_WQ_END,
@@ -2002,6 +2027,7 @@ void rmnet_shs_wq_exit(void)
 		return;
 
 	rmnet_shs_wq_mem_deinit();
+	rmnet_shs_genl_send_int_to_userspace_no_info(RMNET_SHS_SYNC_WQ_EXIT);
 
 	trace_rmnet_shs_wq_high(RMNET_SHS_WQ_EXIT, RMNET_SHS_WQ_EXIT_START,
 				   0xDEF, 0xDEF, 0xDEF, 0xDEF, NULL, NULL);
