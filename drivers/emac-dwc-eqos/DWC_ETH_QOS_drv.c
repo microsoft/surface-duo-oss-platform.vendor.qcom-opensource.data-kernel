@@ -2511,7 +2511,7 @@ static int DWC_ETH_QOS_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct desc_if_struct *desc_if = &pdata->desc_if;
 	INT retval = NETDEV_TX_OK;
 #ifdef DWC_ETH_QOS_ENABLE_VLAN_TAG
-	UINT varvlan_pkt;
+	UINT varvlan_pkt = 0;
 #endif
 	int tso;
 	struct netdev_queue *devq = netdev_get_tx_queue(dev, qinx);
@@ -4973,7 +4973,7 @@ static int DWC_ETH_QOS_config_svlan(struct DWC_ETH_QOS_prv_data *pdata,
 }
 #endif /* end of DWC_ETH_QOS_ENABLE_DVLAN */
 
-static VOID DWC_ETH_QOS_config_timer_registers(
+static void DWC_ETH_QOS_config_timer_registers(
 				struct DWC_ETH_QOS_prv_data *pdata)
 {
 		struct timespec now;
