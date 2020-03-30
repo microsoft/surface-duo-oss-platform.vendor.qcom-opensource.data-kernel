@@ -5118,9 +5118,8 @@ static int DWC_ETH_QOS_config_pfc(struct net_device *dev,
  *
  * \retval 0: Success, -1 : Failure
  * */
-static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
+static int ETH_PTPCLK_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg)
 {
-	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	int ret = 0;
 
@@ -5873,13 +5872,12 @@ static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 			sizeof(struct ETH_PPS_Config))) {
 			return -EFAULT;
 		}
-		req->ptr = &eth_pps_cfg;
 
 		if((eth_pps_cfg.ppsout_ch < 0) ||
 			(eth_pps_cfg.ppsout_ch >= pdata->hw_feat.pps_out_num))
 			ret = -EOPNOTSUPP;
 		else
-			ret = ETH_PTPCLK_Config(pdata, req);
+			ret = ETH_PTPCLK_Config(pdata, &eth_pps_cfg);
 		break;
 
 	case DWC_ETH_QOS_CONFIG_PPSOUT_CMD:
