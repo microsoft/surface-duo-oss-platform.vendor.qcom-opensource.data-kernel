@@ -1772,7 +1772,7 @@ static void DWC_ETH_QOS_read_mac_addr_from_config(void)
 		goto ret;
 	}
 	/* Copy Mac address as NUll terminating string */
-	memcpy(mac_str, (char *)data, size);
+	strlcpy(mac_str, (char *)data, size);
 
 	if (!mac_pton(mac_str, config_dev_addr) && !is_valid_ether_addr(config_dev_addr)) {
 		EMACERR("Invalid mac addr found in emac_config.ini\n");

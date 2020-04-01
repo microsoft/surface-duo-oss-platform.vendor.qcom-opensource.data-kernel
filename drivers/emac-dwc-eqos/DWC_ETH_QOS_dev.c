@@ -328,7 +328,7 @@ static INT config_svlan(UINT flags)
 	return ret;
 }
 
-static VOID config_dvlan(bool enb_dis)
+static void config_dvlan(bool enb_dis)
 {
 	MAC_VLANTR_EDVLP_UDFWR(enb_dis);
 }
@@ -375,7 +375,7 @@ static int update_arp_offload_ip_addr(UCHAR addr[])
 
 static u32 get_lpi_status(void)
 {
-	u32 varmac_lps;
+	u32 varmac_lps = 0;
 
 	MAC_LPS_RGRD(varmac_lps);
 
@@ -511,7 +511,7 @@ static int control_an(bool enable, bool restart)
 
 static int get_an_adv_pause_param(void)
 {
-	unsigned long varmac_aad;
+	unsigned long varmac_aad = 0;
 
 	MAC_AAD_RGRD(varmac_aad);
 
@@ -529,7 +529,7 @@ static int get_an_adv_pause_param(void)
 
 static int get_an_adv_duplex_param(void)
 {
-	unsigned long varmac_aad;
+	unsigned long varmac_aad = 0;
 
 	MAC_AAD_RGRD(varmac_aad);
 	if (GET_VALUE(varmac_aad, MAC_AAD_FD_LPOS, MAC_AAD_FD_HPOS) == 1)
@@ -548,7 +548,7 @@ static int get_an_adv_duplex_param(void)
 
 static int get_lp_an_adv_pause_param(void)
 {
-	unsigned long varmac_alpa;
+	unsigned long varmac_alpa = 0;
 
 	MAC_ALPA_RGRD(varmac_alpa);
 
@@ -566,7 +566,7 @@ static int get_lp_an_adv_pause_param(void)
 
 static int get_lp_an_adv_duplex_param(void)
 {
-	unsigned long varmac_alpa;
+	unsigned long varmac_alpa = 0;
 
 	MAC_ALPA_RGRD(varmac_alpa);
 	if (GET_VALUE(varmac_alpa, MAC_ALPA_FD_LPOS, MAC_ALPA_FD_HPOS) == 1)
@@ -577,7 +577,7 @@ static int get_lp_an_adv_duplex_param(void)
 
 static UINT get_vlan_tag_comparison(void)
 {
-	UINT etv;
+	UINT etv = 0;
 
 	MAC_VLANTR_ETV_UDFRD(etv);
 
@@ -602,7 +602,7 @@ static INT config_vlan_tag_data(UINT vlan_tag,
 {
 	ULONG RETRYCOUNT = 1000;
 	ULONG current_cnt = 0;
-	volatile int op_busy;
+	volatile int op_busy = 0;
 	int reg_val = 0;
 
 	EMACDBG("Enter\n");
@@ -735,7 +735,7 @@ static INT update_vlan_hash_table_reg(USHORT data)
 
 static INT get_vlan_hash_table_reg(void)
 {
-	ULONG VARMAC_VLANHTR;
+	ULONG VARMAC_VLANHTR = 0;
 
 	MAC_VLANHTR_RGRD(VARMAC_VLANHTR);
 
@@ -1001,7 +1001,7 @@ static INT config_mac_pkt_filter_reg(UCHAR pr_mode,
 				     UCHAR pm_mode,
 				     UCHAR hpf_mode)
 {
-	ULONG VARMAC_MPFR;
+	ULONG VARMAC_MPFR = 0;
 
 	/* configure device in differnet modes */
 	/* promiscuous, hash unicast, hash multicast, */
@@ -1119,7 +1119,7 @@ static INT update_hash_table_reg(INT idx,
 
 static INT drop_tx_status_enabled(void)
 {
-	ULONG VARMTL_OMR;
+	ULONG VARMTL_OMR = 0;
 
 	MTL_OMR_RGRD(VARMTL_OMR);
 
@@ -1136,7 +1136,7 @@ static INT drop_tx_status_enabled(void)
 
 static INT config_sub_second_increment(ULONG ptp_clock)
 {
-	ULONG VARMAC_TCR;
+	ULONG VARMAC_TCR = 0;
 	ULONG ss_inc = 0;
 	ULONG sns_inc = 0;
 
@@ -1224,8 +1224,8 @@ static INT config_default_addend(struct DWC_ETH_QOS_prv_data *pdata, ULONG ptp_c
 static ULONG_LONG get_systime(void)
 {
 	ULONG_LONG ns;
-	ULONG varmac_stnsr;
-	ULONG varmac_stsr;
+	ULONG varmac_stnsr = 0;
+	ULONG varmac_stsr = 0;
 
 	MAC_STNSR_RGRD(varmac_stnsr);
 	ns = GET_VALUE(varmac_stnsr, MAC_STNSR_TSSS_LPOS, MAC_STNSR_TSSS_HPOS);
@@ -1253,7 +1253,7 @@ static INT adjust_systime(UINT sec,
 	ULONG RETRYCOUNT = 100000;
 	ULONG vy_count;
 
-	volatile ULONG VARMAC_TCR;
+	volatile ULONG VARMAC_TCR = 0;
 
 	/* wait for previous(if any) time adjust/update to complete. */
 
@@ -1330,7 +1330,7 @@ static INT config_addend(UINT data)
 {
 	ULONG RETRYCOUNT = 100000;
 	ULONG vy_count;
-	volatile ULONG VARMAC_TCR;
+	volatile ULONG VARMAC_TCR = 0;
 
 	/* wait for previous(if any) added update to complete. */
 
@@ -1388,7 +1388,7 @@ static INT init_systime(UINT sec,
 {
 	ULONG RETRYCOUNT = 100000;
 	ULONG vy_count;
-	volatile ULONG VARMAC_TCR;
+	volatile ULONG VARMAC_TCR = 0;
 
 	/* wait for previous(if any) time initialize to complete. */
 
@@ -1460,8 +1460,8 @@ static INT config_hw_time_stamping(UINT config_val)
 
 static ULONG_LONG get_rx_tstamp(t_RX_CONTEXT_DESC *rxdesc)
 {
-	ULONG_LONG ns;
-	ULONG varrdes1;
+	ULONG_LONG ns = 0;
+	ULONG varrdes1 = 0;
 
 	RX_CONTEXT_DESC_RDES0_ML_RD(rxdesc->RDES0, ns);
 	RX_CONTEXT_DESC_RDES1_ML_RD(rxdesc->RDES1, varrdes1);
@@ -1484,10 +1484,10 @@ static ULONG_LONG get_rx_tstamp(t_RX_CONTEXT_DESC *rxdesc)
 
 static UINT get_rx_tstamp_status(t_RX_CONTEXT_DESC *rxdesc)
 {
-	UINT VAROWN;
-	UINT VARCTXT;
-	UINT VARRDES0;
-	UINT VARRDES1;
+	UINT VAROWN = 0;
+	UINT VARCTXT = 0;
+	UINT VARRDES0 = 0;
+	UINT VARRDES1 = 0;
 
 	/* check for own bit and CTXT bit */
 	RX_CONTEXT_DESC_RDES3_OWN_MLF_RD(rxdesc->RDES3, VAROWN);
@@ -1517,8 +1517,8 @@ static UINT get_rx_tstamp_status(t_RX_CONTEXT_DESC *rxdesc)
 
 static UINT rx_tstamp_available(t_RX_NORMAL_DESC *rxdesc)
 {
-	UINT VARRS1V;
-	UINT VARTSA;
+	UINT VARRS1V = 0;
+	UINT VARTSA = 0;
 
 	RX_NORMAL_DESC_RDES3_RS1V_MLF_RD(rxdesc->RDES3, VARRS1V);
 	if (VARRS1V == 1) {
@@ -1538,8 +1538,8 @@ static UINT rx_tstamp_available(t_RX_NORMAL_DESC *rxdesc)
 
 static ULONG_LONG get_tx_tstamp_via_reg(void)
 {
-	ULONG_LONG ns;
-	ULONG varmac_ttn;
+	ULONG_LONG ns = 0;
+	ULONG varmac_ttn = 0;
 
 	MAC_TTSN_TXTSSTSLO_UDFRD(ns);
 	MAC_TTN_TXTSSTSHI_UDFRD(varmac_ttn);
@@ -1559,8 +1559,8 @@ static ULONG_LONG get_tx_tstamp_via_reg(void)
 
 static UINT get_tx_tstamp_status_via_reg(void)
 {
-	ULONG VARMAC_TCR;
-	ULONG VARMAC_TTSN;
+	ULONG VARMAC_TCR = 0;
+	ULONG VARMAC_TTSN = 0;
 
 	/* device is configured to overwrite the timesatmp of
 	 * earlier packet if driver has not yet read it.
@@ -1593,8 +1593,8 @@ static UINT get_tx_tstamp_status_via_reg(void)
 
 static ULONG_LONG get_tx_tstamp(t_TX_NORMAL_DESC *txdesc)
 {
-	ULONG_LONG ns;
-	ULONG vartdes1;
+	ULONG_LONG ns = 0;
+	ULONG vartdes1 = 0;
 
 	TX_NORMAL_DESC_TDES0_ML_RD(txdesc->TDES0, ns);
 	TX_NORMAL_DESC_TDES1_ML_RD(txdesc->TDES1, vartdes1);
@@ -1615,7 +1615,7 @@ static ULONG_LONG get_tx_tstamp(t_TX_NORMAL_DESC *txdesc)
 
 static UINT get_tx_tstamp_status(t_TX_NORMAL_DESC *txdesc)
 {
-	UINT VARTDES3;
+	UINT VARTDES3 = 0;
 
 	TX_NORMAL_DESC_TDES3_ML_RD(txdesc->TDES3, VARTDES3);
 
@@ -1872,7 +1872,7 @@ static INT set_dcb_algorithm(UCHAR dcb_algo)
 UCHAR get_tx_queue_count(void)
 {
 	UCHAR count;
-	ULONG VARMAC_HFR2;
+	ULONG VARMAC_HFR2 = 0;
 
 	MAC_HFR2_RGRD(VARMAC_HFR2);
 	count = GET_VALUE(
@@ -1892,7 +1892,7 @@ UCHAR get_tx_queue_count(void)
 UCHAR get_rx_queue_count(void)
 {
 	UCHAR count;
-	ULONG VARMAC_HFR2;
+	ULONG VARMAC_HFR2 = 0;
 
 	MAC_HFR2_RGRD(VARMAC_HFR2);
 	count = GET_VALUE(
@@ -1928,7 +1928,7 @@ static INT disable_mmc_interrupts(void)
 
 static INT config_mmc_counters(void)
 {
-	ULONG VARMMC_CNTRL;
+	ULONG VARMMC_CNTRL = 0;
 
 	/* set COUNTER RESET */
 	/* set RESET ON READ */
@@ -1975,42 +1975,42 @@ static INT enable_rx_interrupt(UINT QINX)
 	return Y_SUCCESS;
 }
 
-static VOID configure_sa_via_reg(u32 cmd)
+static void configure_sa_via_reg(u32 cmd)
 {
 	MAC_MCR_SARC_UDFWR(cmd);
 }
 
-static VOID configure_mac_addr1_reg(UCHAR *mac_addr)
+static void configure_mac_addr1_reg(UCHAR *mac_addr)
 {
 	MAC_MA1HR_RGWR(((mac_addr[5] << 8) | (mac_addr[4])));
 	MAC_MA1LR_RGWR(((mac_addr[3] << 24) | (mac_addr[2] << 16) |
 			(mac_addr[1] << 8) | (mac_addr[0])));
 }
 
-static VOID configure_mac_addr0_reg(UCHAR *mac_addr)
+static void configure_mac_addr0_reg(UCHAR *mac_addr)
 {
 	MAC_MA0HR_RGWR(((mac_addr[5] << 8) | (mac_addr[4])));
 	MAC_MA0LR_RGWR(((mac_addr[3] << 24) | (mac_addr[2] << 16) |
 			(mac_addr[1] << 8) | (mac_addr[0])));
 }
 
-static VOID config_rx_outer_vlan_stripping(u32 cmd)
+static void config_rx_outer_vlan_stripping(u32 cmd)
 {
 	MAC_VLANTR_EVLS_UDFWR(cmd);
 }
 
-static VOID config_rx_inner_vlan_stripping(u32 cmd)
+static void config_rx_inner_vlan_stripping(u32 cmd)
 {
 	MAC_VLANTR_EIVLS_UDFWR(cmd);
 }
 
-static VOID config_ptpoffload_engine(UINT pto_cr, UINT mc_uc)
+static void config_ptpoffload_engine(UINT pto_cr, UINT mc_uc)
 {
 	MAC_PTO_CR_RGWR(pto_cr);
 	MAC_TCR_TSENMACADDR_UDFWR(mc_uc);
 }
 
-static VOID configure_reg_vlan_control(
+static void configure_reg_vlan_control(
 	struct DWC_ETH_QOS_tx_wrapper_descriptor *desc_data)
 {
 	USHORT vlan_id = desc_data->vlan_tag_id;
@@ -2019,7 +2019,7 @@ static VOID configure_reg_vlan_control(
 	MAC_VLANTIRR_RGWR(((1 << 18) | (vlan_control << 16) | (vlan_id << 0)));
 }
 
-static VOID configure_desc_vlan_control(struct DWC_ETH_QOS_prv_data *pdata)
+static void configure_desc_vlan_control(struct DWC_ETH_QOS_prv_data *pdata)
 {
 	MAC_VLANTIRR_RGWR((1 << 20));
 }
@@ -2072,7 +2072,7 @@ static INT config_pblx8(UINT QINX, UINT val)
 
 static INT get_tx_pbl_val(UINT QINX)
 {
-	UINT tx_pbl;
+	UINT tx_pbl = 0;
 
 	DMA_TCR_PBL_UDFRD(QINX, tx_pbl);
 
@@ -2099,7 +2099,7 @@ static INT config_tx_pbl_val(UINT QINX, UINT tx_pbl)
 
 static INT get_rx_pbl_val(UINT QINX)
 {
-	UINT rx_pbl;
+	UINT rx_pbl = 0;
 
 	DMA_RCR_PBL_UDFRD(QINX, rx_pbl);
 
@@ -2153,7 +2153,7 @@ static INT config_axi_worl_val(UINT axi_worl)
 
 static INT config_axi_pbl_val(UINT axi_pbl)
 {
-	UINT VARDMA_SBUS;
+	UINT VARDMA_SBUS = 0;
 
 	DMA_SBUS_RGRD(VARDMA_SBUS);
 	VARDMA_SBUS &= ~DMA_SBUS_AXI_PBL_MASK;
@@ -2281,7 +2281,7 @@ static INT enable_magic_pmt_operation(void)
 
 static INT disable_magic_pmt_operation(void)
 {
-	UINT VARPMTCSR_PWRDWN;
+	UINT VARPMTCSR_PWRDWN = 0;
 
 	MAC_PMTCSR_MGKPKTEN_UDFWR(0x0);
 	MAC_PMTCSR_PWRDWN_UDFRD(VARPMTCSR_PWRDWN);
@@ -2313,7 +2313,7 @@ static INT enable_remote_pmt_operation(void)
 
 static INT disable_remote_pmt_operation(void)
 {
-	UINT VARPMTCSR_PWRDWN;
+	UINT VARPMTCSR_PWRDWN = 0;
 
 	MAC_PMTCSR_RWKPKTEN_UDFWR(0x0);
 	MAC_PMTCSR_PWRDWN_UDFRD(VARPMTCSR_PWRDWN);
@@ -2403,9 +2403,9 @@ static INT stop_dma_rx(UINT QINX)
 {
 	ULONG RETRYCOUNT = 10;
 	ULONG vy_count;
-	volatile ULONG VARDMA_DSR0;
-	volatile ULONG VARDMA_DSR1;
-	volatile ULONG VARDMA_DSR2;
+	volatile ULONG VARDMA_DSR0 = 0;
+	volatile ULONG VARDMA_DSR1 = 0;
+	volatile ULONG VARDMA_DSR2 = 0;
 
 	/* issue Rx dma stop command */
 	DMA_RCR_ST_UDFWR(QINX, 0);
@@ -2650,9 +2650,9 @@ static INT stop_dma_tx(UINT QINX)
 {
 	ULONG RETRYCOUNT = 10;
 	ULONG vy_count;
-	volatile ULONG VARDMA_DSR0;
-	volatile ULONG VARDMA_DSR1;
-	volatile ULONG VARDMA_DSR2;
+	volatile ULONG VARDMA_DSR0 = 0;
+	volatile ULONG VARDMA_DSR1 = 0;
+	volatile ULONG VARDMA_DSR2 = 0;
 
 	/* issue Tx dma stop command */
 	DMA_TCR_ST_UDFWR(QINX, 0);
@@ -2871,7 +2871,7 @@ static INT start_dma_tx(UINT QINX)
 
 static INT stop_mac_tx_rx(void)
 {
-	ULONG VARMAC_MCR;
+	ULONG VARMAC_MCR = 0;
 
 	MAC_MCR_RGRD(VARMAC_MCR);
 	VARMAC_MCR = VARMAC_MCR & (ULONG)(0xffffff7c);
@@ -2889,7 +2889,7 @@ static INT stop_mac_tx_rx(void)
 
 static INT start_mac_tx_rx(void)
 {
-	ULONG VARMAC_MCR;
+	ULONG VARMAC_MCR = 0;
 
 	MAC_MCR_RGRD(VARMAC_MCR);
 	VARMAC_MCR = VARMAC_MCR & (ULONG)(0xffffff7c);
@@ -2910,8 +2910,8 @@ static INT enable_tx_dma_interrupts(UINT QINX,
 	struct DWC_ETH_QOS_prv_data *pdata)
 {
 	UINT tmp;
-	ULONG VARDMA_SR;
-	ULONG VARDMA_IER;
+	ULONG VARDMA_SR = 0;
+	ULONG VARDMA_IER = 0;
 	ULONG DMA_TX_INT_MASK = 0xFC07;
 	ULONG DMA_TX_INT_RESET_MASK = 0xFBC0;
 
@@ -2948,8 +2948,8 @@ static INT enable_rx_dma_interrupts(UINT QINX,
 	struct DWC_ETH_QOS_prv_data *pdata)
 {
 	UINT tmp;
-	ULONG VARDMA_SR;
-	ULONG VARDMA_IER;
+	ULONG VARDMA_SR = 0;
+	ULONG VARDMA_IER = 0;
 	ULONG DMA_RX_INT_MASK = 0xFBC0;
 	ULONG DMA_RX_INT_RESET_MASK = 0xF407;
 
@@ -3129,7 +3129,7 @@ static INT write_phy_regs(INT phy_id, INT phy_reg, INT phy_reg_data)
 {
 	ULONG RETRYCOUNT = 5000;
 	ULONG vy_count;
-	volatile ULONG VARMAC_GMIIAR;
+	volatile ULONG VARMAC_GMIIAR= 0;
 
 	/* wait for any previous MII read/write operation to complete */
 
@@ -3200,8 +3200,8 @@ static INT read_phy_regs(INT phy_id, INT phy_reg, INT *phy_reg_data)
 {
 	ULONG RETRYCOUNT = 5000;
 	ULONG vy_count;
-	volatile ULONG VARMAC_GMIIAR;
-	ULONG VARMAC_GMIIDR;
+	volatile ULONG VARMAC_GMIIAR = 0;
+	ULONG VARMAC_GMIIDR = 0;
 
 	/* wait for any previous MII read/write operation to complete */
 
@@ -3271,7 +3271,7 @@ static INT read_phy_regs(INT phy_id, INT phy_reg, INT *phy_reg_data)
 
 static INT tx_fifo_underrun(t_TX_NORMAL_DESC *txdesc)
 {
-	UINT VARTDES3;
+	UINT VARTDES3 = 0;
 
 	/* check TDES3.UF bit */
 	TX_NORMAL_DESC_TDES3_ML_RD(txdesc->TDES3, VARTDES3);
@@ -3292,7 +3292,7 @@ static INT tx_fifo_underrun(t_TX_NORMAL_DESC *txdesc)
 
 static INT tx_carrier_lost_error(t_TX_NORMAL_DESC *txdesc)
 {
-	UINT VARTDES3;
+	UINT VARTDES3 = 0;
 
 	/* check TDES3.LoC and TDES3.NC bits */
 	TX_NORMAL_DESC_TDES3_ML_RD(txdesc->TDES3, VARTDES3);
@@ -3313,7 +3313,7 @@ static INT tx_carrier_lost_error(t_TX_NORMAL_DESC *txdesc)
 
 static INT tx_aborted_error(t_TX_NORMAL_DESC *txdesc)
 {
-	UINT VARTDES3;
+	UINT VARTDES3 = 0;
 
 	/* check for TDES3.LC and TDES3.EC */
 	TX_NORMAL_DESC_TDES3_ML_RD(txdesc->TDES3, VARTDES3);
@@ -3334,7 +3334,7 @@ static INT tx_aborted_error(t_TX_NORMAL_DESC *txdesc)
 
 static INT tx_complete(t_TX_NORMAL_DESC *txdesc)
 {
-	UINT VAROWN;
+	UINT VAROWN = 0;
 
 	TX_NORMAL_DESC_TDES3_OWN_MLF_RD(txdesc->TDES3, VAROWN);
 	if (VAROWN == 0)
@@ -3353,7 +3353,7 @@ static INT tx_complete(t_TX_NORMAL_DESC *txdesc)
 
 static INT get_rx_csum_status(void)
 {
-	ULONG VARMAC_MCR;
+	ULONG VARMAC_MCR = 0;
 
 	MAC_MCR_RGRD(VARMAC_MCR);
 	if (GET_VALUE(VARMAC_MCR, MAC_MCR_IPC_LPOS, MAC_MCR_IPC_HPOS)
@@ -3621,9 +3621,9 @@ static void pre_transmit(struct DWC_ETH_QOS_prv_data *pdata,
 	    GET_TX_DESC_PTR(QINX, tx_desc_data->cur_tx);
 	struct s_TX_CONTEXT_DESC *TX_CONTEXT_DESC =
 	    (struct s_TX_CONTEXT_DESC *)GET_TX_DESC_PTR(QINX, tx_desc_data->cur_tx);
-	UINT varcsum_enable;
+	UINT varcsum_enable = 0;
 #ifdef DWC_ETH_QOS_ENABLE_VLAN_TAG
-	UINT varvlan_pkt;
+	UINT varvlan_pkt = 0;
 	UINT varvt;
 #endif
 	INT i;
@@ -3932,26 +3932,26 @@ static void device_read(struct DWC_ETH_QOS_prv_data *pdata, UINT QINX)
 	    GET_RX_WRAPPER_DESC(QINX);
 	struct s_RX_NORMAL_DESC *RX_NORMAL_DESC =
 	    GET_RX_DESC_PTR(QINX, rx_desc_data->cur_rx);
-	UINT VAROWN;
-	UINT VARES;
+	UINT VAROWN = 0;
+	UINT VARES = 0;
 	struct DWC_ETH_QOS_rx_buffer *buffer =
 	    GET_RX_BUF_PTR(QINX, rx_desc_data->cur_rx);
-	UINT VARRS1V;
-	UINT VARIPPE;
-	UINT VARIPCB;
-	UINT VARIPHE;
+	UINT VARRS1V = 0;
+	UINT VARIPPE = 0;
+	UINT VARIPCB = 0;
+	UINT VARIPHE = 0;
 	struct s_rx_pkt_features *rx_pkt_features = GET_RX_PKT_FEATURES_PTR;
 #ifdef DWC_ETH_QOS_ENABLE_VLAN_TAG
 	UINT VARRS0V;
 	UINT VARLT;
 	UINT VARRDES0;
 #endif
-	UINT VAROE;
+	UINT VAROE = 0;
 	struct s_rx_error_counters *rx_error_counters =
 	    GET_RX_ERROR_COUNTERS_PTR;
-	UINT VARCE;
-	UINT VARRE;
-	UINT VARLD;
+	UINT VARCE = 0;
+	UINT VARRE = 0;
+	UINT VARLD = 0;
 
 	DBGPR("-->device_read: cur_rx = %d\n", rx_desc_data->cur_rx);
 
@@ -4069,7 +4069,7 @@ static void update_rx_tail_ptr(unsigned int QINX, unsigned int dma_addr)
 
 static INT get_tx_descriptor_ctxt(t_TX_NORMAL_DESC *txdesc)
 {
-	ULONG VARCTXT;
+	ULONG VARCTXT = 0;
 
 	/* check TDES3.CTXT bit */
 	TX_NORMAL_DESC_TDES3_CTXT_MLF_RD(txdesc->TDES3, VARCTXT);
@@ -4090,7 +4090,7 @@ static INT get_tx_descriptor_ctxt(t_TX_NORMAL_DESC *txdesc)
 
 static INT get_tx_descriptor_last(t_TX_NORMAL_DESC *txdesc)
 {
-	ULONG VARLD;
+	ULONG VARLD = 0;
 
 	/* check TDES3.LD bit */
 	TX_NORMAL_DESC_TDES3_LD_MLF_RD(txdesc->TDES3, VARLD);
@@ -4113,7 +4113,7 @@ static INT DWC_ETH_QOS_yexit(void)
 {
 	ULONG RETRYCOUNT = 1000;
 	ULONG vy_count;
-	volatile ULONG VARDMA_BMR;
+	volatile ULONG VARDMA_BMR = 0;
 
 	DBGPR("-->DWC_ETH_QOS_yexit\n");
 
@@ -4230,7 +4230,7 @@ static INT configure_tx_queue(UINT queue_index)
 	ULONG RETRYCOUNT = 1000;
 	UINT op_mode = DWC_ETH_QOS_Q_GENERIC;
 	UINT desc_posted_write = 0x1;
-	volatile ULONG VARMTL_QTOMR;
+	volatile ULONG VARMTL_QTOMR = 0;
 
 	IPC_LOW("Enter\n");
 
@@ -4398,7 +4398,7 @@ static INT configure_mtl_queue(UINT QINX, struct DWC_ETH_QOS_prv_data *pdata)
 	struct DWC_ETH_QOS_tx_queue *queue_data = GET_TX_QUEUE_PTR(QINX);
 	ULONG RETRYCOUNT = 1000;
 	ULONG vy_count;
-	volatile ULONG VARMTL_QTOMR;
+	volatile ULONG VARMTL_QTOMR = 0;
 	UINT p_rx_fifo = EDWC_ETH_QOS_256, p_tx_fifo = EDWC_ETH_QOS_256;
 
 	DBGPR("-->configure_mtl_queue\n");
@@ -4622,7 +4622,7 @@ static void configure_rx_dma_channel(UINT QINX,
 
 static int enable_mac_interrupts(void)
 {
-	unsigned long varmac_imr;
+	unsigned long varmac_imr = 0;
 
 	/* Enable following interrupts */
 	MAC_IMR_RGRD(varmac_imr);
@@ -4634,7 +4634,7 @@ static int enable_mac_interrupts(void)
 
 static INT configure_mac(struct DWC_ETH_QOS_prv_data *pdata)
 {
-	ULONG VARMAC_MCR;
+	ULONG VARMAC_MCR = 0;
 	UINT QINX;
 
 	DBGPR("-->configure_mac\n");

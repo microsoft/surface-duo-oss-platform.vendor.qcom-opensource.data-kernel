@@ -1581,7 +1581,7 @@ static unsigned int DWC_ETH_QOS_map_skb(struct net_device *dev,
 	    GET_TX_BUF_PTR(qinx, desc_data->cur_tx);
 	struct DWC_ETH_QOS_tx_buffer *prev_buffer = NULL;
 	struct s_tx_pkt_features *tx_pkt_features = GET_TX_PKT_FEATURES_PTR;
-	UINT varvlan_pkt;
+	UINT varvlan_pkt = 0;
 	int index = (int)desc_data->cur_tx;
 	unsigned int frag_cnt = skb_shinfo(skb)->nr_frags;
 	unsigned int hdr_len = 0;

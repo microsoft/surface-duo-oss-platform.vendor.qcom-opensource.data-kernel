@@ -1112,7 +1112,8 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 {
 	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
 	struct phy_device *phydev = NULL;
-	char phy_id_fmt[MII_BUS_ID_SIZE + 3];
+	int phy_id_size = MII_BUS_ID_SIZE + 3;
+	char phy_id_fmt[phy_id_size];
 	char bus_id[MII_BUS_ID_SIZE];
 	u32 phydata = 0;
 	int ret = 0;
@@ -1125,7 +1126,7 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 
 	snprintf(bus_id, MII_BUS_ID_SIZE, "dwc_phy-%x", pdata->bus_id);
 
-	snprintf(phy_id_fmt, MII_BUS_ID_SIZE + 3, PHY_ID_FMT, bus_id,
+	snprintf(phy_id_fmt, phy_id_size, PHY_ID_FMT, bus_id,
 		 pdata->phyaddr);
 
 	DBGPR_MDIO("trying to attach to %s\n", phy_id_fmt);

@@ -174,7 +174,7 @@ int DWC_ETH_QOS_rgmii_io_macro_sdcdc_init(struct DWC_ETH_QOS_prv_data *pdata)
 	ULONG RETRYCOUNT = 1000;
 	ULONG current_cnt = 0;
 
-	volatile ULONG VARDLL_LOCK;
+	volatile ULONG VARDLL_LOCK = 0;
 
 	EMACDBG("Enter\n");
 
@@ -259,7 +259,7 @@ int DWC_ETH_QOS_rgmii_io_macro_sdcdc_config(struct DWC_ETH_QOS_prv_data *pdata)
 
 	ULONG RETRYCOUNT = 1000;
 	ULONG current_cnt = 0;
-	volatile ULONG VARCK_OUT_EN;
+	volatile ULONG VARCK_OUT_EN = 0;
 
 	EMACDBG("Enter\n");
 
@@ -420,7 +420,7 @@ int DWC_ETH_QOS_rgmii_io_macro_init(struct DWC_ETH_QOS_prv_data *pdata)
 	uint loopback_mode = 0;
 	uint loopback_mode_en = 0;
 	uint rgmii_data_divide_clk;
-	ULONG data;
+	ULONG data = 0;
 
 	if (pdata->emac_hw_version_type == EMAC_HW_v2_3_0 || (pdata->emac_hw_version_type == EMAC_HW_v2_3_1)
 		|| (pdata->emac_hw_version_type == EMAC_HW_v2_1_1)) {
@@ -734,7 +734,7 @@ int DWC_ETH_QOS_rgmii_io_macro_dll_reset(struct DWC_ETH_QOS_prv_data *pdata)
 
 void dump_rgmii_io_macro_registers(void)
 {
-	int reg_val;
+	int reg_val = 0;
 
 	pr_alert(
 			"\n************* RGMII IO Macro Reg dump *************************\n");
