@@ -5273,6 +5273,28 @@ void stop_pps(int ch)
 }
 
 
+static void align_target_time_reg(u32 ch,struct DWC_ETH_QOS_prv_data *pdata,
+	struct ETH_PPS_Config *eth_pps_cfg, unsigned int align_ns)
+{
+
+	unsigned int system_s, system_ns, temp_system_s;
+
+	MAC_STSR_RGRD(system_s); // PTP seconds
+	MAC_STNSR_RGRD(system_ns);// PTP nanoseconds
+	MAC_STSR_RGRD(temp_system_s);
+	if (temp_system_s != system_s) { // second roll over
+		MAC_STSR_RGRD(system_s); // PTP seconds
+		MAC_STNSR_RGRD(system_ns); // PTP subseconds
+	}
+
+	system_ns += PPS_START_DELAY;
+	if (system_ns >= align_ns)
+		system_s += 1;
+	MAC_PPS_TTS_RGWR(ch,system_s);		//set seconds
+	MAC_PPS_TTNS_RGWR(ch,align_ns);		//set nanoseconds
+
+}
+
 /*!
  * \brief This function confiures the PPS output.
  * \param[in] pdata : pointer to private data structure.
@@ -5280,10 +5302,9 @@ void stop_pps(int ch)
  *
  * \retval 0: Success, -1 : Failure
  * */
-int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct *req)
+int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg)
 {
-	struct ETH_PPS_Config *eth_pps_cfg = (struct ETH_PPS_Config *)req->ptr;
-	unsigned int val;
+	unsigned int val, align_ns = 0;
 	int interval, width;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 
@@ -5331,13 +5352,28 @@ int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct
 	if (width >= interval) width = interval - 1;
 	if (width < 0) width = 0;
 
-	EMACDBG("PPS: PPSOut_Config: freq=%dHz, ch=%d, duty=%d\n",
+	if (eth_pps_cfg->ppsout_align == 1) {
+		EMACDBG("PPS: PPSOut_Config: freq=%dHz, ch=%d, duty=%d, align=%d\n",
+				eth_pps_cfg->ppsout_freq,
+				eth_pps_cfg->ppsout_ch,
+				eth_pps_cfg->ppsout_duty,
+				eth_pps_cfg->ppsout_align_ns);
+	} else {
+		EMACDBG("PPS: PPSOut_Config: freq=%dHz, ch=%d, duty=%d\n",
 				eth_pps_cfg->ppsout_freq,
 				eth_pps_cfg->ppsout_ch,
 				eth_pps_cfg->ppsout_duty);
+	}
 	EMACDBG(" PPS: with PTP Clock freq=%dHz\n", pdata->ptpclk_freq);
-
 	EMACDBG("PPS: PPSOut_Config: interval=%d, width=%d\n", interval, width);
+
+	if (eth_pps_cfg->ppsout_align == 1) {
+		align_ns = eth_pps_cfg->ppsout_align_ns;
+		if (align_ns < PPS_ADJUST_NS)
+			align_ns += ( ONE_NS - PPS_ADJUST_NS );
+		else
+			align_ns -= PPS_ADJUST_NS;
+	}
 
 	switch (eth_pps_cfg->ppsout_ch) {
 	case DWC_ETH_QOS_PPS_CH_0:
@@ -5346,18 +5382,25 @@ int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ifr_data_struct
 				MAC_PPSC_PPSEN0_UDFWR(0x1);
 				MAC_PPS_INTVAL_PPSINT0_UDFWR(DWC_ETH_QOS_PPS_CH_0, interval);
 				MAC_PPS_WIDTH_PPSWIDTH0_UDFWR(DWC_ETH_QOS_PPS_CH_0, width);
-				configure_target_time_reg(DWC_ETH_QOS_PPS_CH_0);
+				if (eth_pps_cfg->ppsout_align == 1) {
+					align_target_time_reg(DWC_ETH_QOS_PPS_CH_0, pdata, eth_pps_cfg, align_ns);
+				} else
+					configure_target_time_reg(DWC_ETH_QOS_PPS_CH_0);
 				MAC_PPSC_TRGTMODSEL0_UDFWR(0x2);
 				MAC_PPSC_PPSCTRL0_UDFWR(0x2);
 			} else if (eth_pps_cfg->ppsout_start == DWC_ETH_QOS_PPS_STOP) {
 				EMACDBG("STOP pps for channel 0\n");
 				stop_pps(DWC_ETH_QOS_PPS_CH_0);
 			}
-		} else{
+		} else {
 			MAC_PPS_INTVAL0_PPSINT0_UDFWR(interval);  // interval
 			MAC_PPS_WIDTH0_PPSWIDTH0_UDFWR(width);
-			MAC_STSR_TSS_UDFRD(val);     //PTP seconds      start time value in target resister
-			MAC_PPS_TTS_TSTRH0_UDFWR(0, val+1);
+			if (eth_pps_cfg->ppsout_align == 1) {
+				align_target_time_reg(DWC_ETH_QOS_PPS_CH_0, pdata, eth_pps_cfg, align_ns);
+			} else {
+				MAC_STSR_TSS_UDFRD(val);     //PTP seconds      start time value in target resister
+				MAC_PPS_TTS_TSTRH0_UDFWR(0, val+1);
+			}
 			MAC_PPSC_PPSCTRL0_UDFWR(0x2);   //ppscmd
 			MAC_PPSC_PPSEN0_UDFWR(0x1);
 		}
@@ -5832,7 +5875,8 @@ static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 		}
 		req->ptr = &eth_pps_cfg;
 
-		if(pdata->hw_feat.pps_out_num == 0)
+		if((eth_pps_cfg.ppsout_ch < 0) ||
+			(eth_pps_cfg.ppsout_ch >= pdata->hw_feat.pps_out_num))
 			ret = -EOPNOTSUPP;
 		else
 			ret = ETH_PTPCLK_Config(pdata, req);
@@ -5844,12 +5888,16 @@ static int DWC_ETH_QOS_handle_prv_ioctl(struct DWC_ETH_QOS_prv_data *pdata,
 			sizeof(struct ETH_PPS_Config))) {
 			return -EFAULT;
 		}
-		req->ptr = &eth_pps_cfg;
 
-		if(pdata->hw_feat.pps_out_num == 0)
+		if((eth_pps_cfg.ppsout_ch < 0) ||
+			(eth_pps_cfg.ppsout_ch >= pdata->hw_feat.pps_out_num))
+			ret = -EOPNOTSUPP;
+		else if((eth_pps_cfg.ppsout_align == 1) &&
+				((eth_pps_cfg.ppsout_ch != DWC_ETH_QOS_PPS_CH_0) &&
+				(eth_pps_cfg.ppsout_ch != DWC_ETH_QOS_PPS_CH_3)))
 			ret = -EOPNOTSUPP;
 		else
-			ret = ETH_PPSOUT_Config(pdata, req);
+			ret = ETH_PPSOUT_Config(pdata, &eth_pps_cfg);
 		break;
 #endif
 
