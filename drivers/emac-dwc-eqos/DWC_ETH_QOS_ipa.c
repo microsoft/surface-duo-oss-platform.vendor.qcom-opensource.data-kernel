@@ -167,11 +167,6 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 				DWC_ETH_QOS_ipa_ready(pdata);
 
 			if (pdata->prv_ipa.ipa_ready) {
-				if (!pdata->prv_ipa.ipa_offload_init) {
-					if(!DWC_ETH_QOS_ipa_offload_init(pdata))
-						pdata->prv_ipa.ipa_offload_init = true;
-				}
-
 				if (!pdata->prv_ipa.ipa_uc_ready)
 					DWC_ETH_QOS_ipa_uc_ready(pdata);
 
@@ -184,11 +179,6 @@ void DWC_ETH_QOS_ipa_offload_event_handler(
 	case EV_IPA_READY:
 		{
 				pdata->prv_ipa.ipa_ready = true;
-
-				if (!pdata->prv_ipa.ipa_offload_init) {
-					if(!DWC_ETH_QOS_ipa_offload_init(pdata))
-						pdata->prv_ipa.ipa_offload_init = true;
-				}
 
 				if (!pdata->prv_ipa.ipa_uc_ready) {
 					DWC_ETH_QOS_ipa_uc_ready(pdata);
@@ -349,16 +339,6 @@ int DWC_ETH_QOS_disable_ipa_offload(struct DWC_ETH_QOS_prv_data *pdata)
 		}
 	}
 
-	if (pdata->prv_ipa.ipa_offload_init) {
-		ret = DWC_ETH_QOS_ipa_offload_cleanup(pdata);
-		if (ret) {
-			EMACERR("IPA Offload Cleanup Failed, err: %d\n", ret);
-			return ret;
-		}
-		EMACDBG("IPA Offload Cleanup Success \n");
-		pdata->prv_ipa.ipa_offload_init = false;
-	}
-
 	if (pdata->prv_ipa.ipa_debugfs_exists) {
 		if (DWC_ETH_QOS_ipa_cleanup_debugfs(pdata))
 			EMACERR("Unable to delete IPA debugfs\n");
@@ -476,6 +456,16 @@ static int DWC_ETH_QOS_ipa_offload_suspend(struct DWC_ETH_QOS_prv_data *pdata)
 					ret);
 	}
 
+	if (pdata->prv_ipa.ipa_offload_init) {
+		ret = DWC_ETH_QOS_ipa_offload_cleanup(pdata);
+		if (ret) {
+			EMACERR("IPA Offload Cleanup Failed, err: %d\n", ret);
+			return ret;
+		}
+		EMACDBG("IPA Offload Cleanup Success \n");
+		pdata->prv_ipa.ipa_offload_init = false;
+	}
+
 	return ret;
 }
 
@@ -493,6 +483,16 @@ static int DWC_ETH_QOS_ipa_offload_resume(struct DWC_ETH_QOS_prv_data *pdata)
 	struct ipa_perf_profile profile;
 
 	EMACDBG("Enter\n");
+
+	if (!pdata->prv_ipa.ipa_offload_init) {
+		ret = DWC_ETH_QOS_ipa_offload_init(pdata);
+		if (ret) {
+			pdata->prv_ipa.ipa_offload_init = false;
+			EMACERR("IPA Offload Init Failed \n");
+			return ret;
+		}
+		pdata->prv_ipa.ipa_offload_init = true;
+	}
 
 	/* Initialze descriptors before IPA connect */
 	/* Set IPA owned DMA channels to reset state */
@@ -726,6 +726,29 @@ static void ntn_ipa_notify_cb(void *priv, enum ipa_dp_evt_type evt,
 	}
 }
 
+static void __ipa_eth_free_msg(void *buff, u32 len, u32 type) {}
+
+static int eth_ipa_send_msg(struct DWC_ETH_QOS_prv_data *pdata,
+		enum ipa_peripheral_event event)
+{
+	struct ipa_msg_meta msg_meta;
+	struct ipa_ecm_msg emac_msg;
+
+	if (!pdata || !pdata->dev)
+		return -EFAULT;
+
+	memset(&msg_meta, 0, sizeof(msg_meta));
+	memset(&emac_msg, 0, sizeof(emac_msg));
+
+	emac_msg.ifindex = pdata->dev->ifindex;
+	strlcpy(emac_msg.name, pdata->dev->name, IPA_RESOURCE_NAME_MAX);
+
+	msg_meta.msg_type = event;
+	msg_meta.msg_len = sizeof(struct ipa_ecm_msg);
+
+	return ipa_send_msg(&msg_meta, &emac_msg, __ipa_eth_free_msg);
+}
+
 /**
  * DWC_ETH_QOS_ipa_offload_init() - Called from NTN driver to initialize IPA
  * offload data path.
@@ -745,7 +768,7 @@ static int DWC_ETH_QOS_ipa_offload_init(struct DWC_ETH_QOS_prv_data *pdata)
 	struct vlan_ethhdr eth_vlan_hdr_v4;
 	struct vlan_ethhdr eth_vlan_hdr_v6;
 #endif
-	bool ipa_vlan_mode;
+	bool ipa_vlan_mode = false;
 	int ret;
 
 	if(!pdata) {
@@ -766,7 +789,7 @@ static int DWC_ETH_QOS_ipa_offload_init(struct DWC_ETH_QOS_prv_data *pdata)
 	memset(&out, 0, sizeof(out));
 
 	/* Building ETH Header */
-	if ( !pdata->prv_ipa.vlan_id || !ipa_vlan_mode) {
+	if ( !(pdata->prv_ipa.vlan_id > MIN_VLAN_ID && pdata->prv_ipa.vlan_id <= MAX_VLAN_ID) || !ipa_vlan_mode) {
 		memset(&eth_l2_hdr_v4, 0, sizeof(eth_l2_hdr_v4));
 		memset(&eth_l2_hdr_v6, 0, sizeof(eth_l2_hdr_v6));
 		memcpy(&eth_l2_hdr_v4.h_source, pdata->dev->dev_addr, ETH_ALEN);
@@ -848,6 +871,10 @@ int DWC_ETH_QOS_ipa_offload_cleanup(struct DWC_ETH_QOS_prv_data *pdata)
 	if (ret) {
 		EMACERR("Could not cleanup IPA Offload ret %d\n",ret);
 		return -1;
+	}
+	else {
+		eth_ipa_send_msg(pdata, IPA_PERIPHERAL_DISCONNECT);
+		EMACDBG("Successful ipa_uc_offload_cleanup and IPA offload disconnect event sent\n");
 	}
 
 	EMACDBG("%s - end\n", __func__);
@@ -1130,7 +1157,10 @@ static int DWC_ETH_QOS_ipa_offload_connect(struct DWC_ETH_QOS_prv_data *pdata)
 		goto mem_free;
 	}
 
- mem_free:
+	eth_ipa_send_msg(pdata, IPA_PERIPHERAL_CONNECT);
+	EMACDBG("IPA offload connect event sent\n");
+
+mem_free:
 	if (rx_setup_info.data_buff_list) {
 		kfree(rx_setup_info.data_buff_list);
 		rx_setup_info.data_buff_list = NULL;
