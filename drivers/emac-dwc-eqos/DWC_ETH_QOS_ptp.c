@@ -73,7 +73,7 @@ static int DWC_ETH_QOS_adjust_freq(struct ptp_clock_info *ptp, s32 ppb)
 	struct DWC_ETH_QOS_prv_data *pdata =
 		container_of(ptp, struct DWC_ETH_QOS_prv_data, ptp_clock_ops);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
-	unsigned long flags;
+	unsigned long flags = 0;
 	u64 adj;
 	u32 diff, addend;
 	int neg_adj = 0;
@@ -124,7 +124,7 @@ static int DWC_ETH_QOS_adjust_time(struct ptp_clock_info *ptp, s64 delta)
 	struct DWC_ETH_QOS_prv_data *pdata =
 		container_of(ptp, struct DWC_ETH_QOS_prv_data, ptp_clock_ops);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
-	unsigned long flags;
+	unsigned long flags = 0;
 	u32 sec, nsec;
 	u32 quotient, reminder;
 	int neg_adj = 0;
@@ -172,7 +172,7 @@ static int DWC_ETH_QOS_get_time(struct ptp_clock_info *ptp, struct timespec64 *t
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	u64 ns;
 	u32 reminder;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	DBGPR_PTP("-->DWC_ETH_QOS_get_time\n");
 
@@ -211,7 +211,7 @@ static int DWC_ETH_QOS_set_time(struct ptp_clock_info *ptp,
 	struct DWC_ETH_QOS_prv_data *pdata =
 		container_of(ptp, struct DWC_ETH_QOS_prv_data, ptp_clock_ops);
 	struct hw_if_struct *hw_if = &pdata->hw_if;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	DBGPR_PTP("-->DWC_ETH_QOS_set_time: ts->tv_sec = %ld,", ts->tv_sec);
 	DBGPR_PTP("ts->tv_nsec = %ld\n", ts->tv_nsec);
