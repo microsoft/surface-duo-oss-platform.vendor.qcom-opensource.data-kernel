@@ -439,8 +439,6 @@ struct ETH_PPS_Config
 	unsigned int ppsout_align_ns;
 };
 
-int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata,
-		struct ETH_PPS_Config *eth_pps_cfg);
 /* 100 ms, in unit of ns */
 #define PPS_START_DELAY 100000000
 #define ONE_NS 1000000000
