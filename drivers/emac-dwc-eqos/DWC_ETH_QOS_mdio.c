@@ -1229,6 +1229,21 @@ int DWC_ETH_QOS_mdio_register(struct net_device *dev)
 
 	DBGPR_MDIO("-->DWC_ETH_QOS_mdio_register\n");
 
+	if (pdata->res_data->phy_addr != -1) {
+		phy_reg_read_status =
+		   DWC_ETH_QOS_mdio_read_direct(pdata, pdata->res_data->phy_addr, MII_BMSR,
+										&mii_status);
+		if (phy_reg_read_status == 0) {
+			if (mii_status != 0x0000 && mii_status != 0xffff) {
+				phy_detected = 1;
+				phyaddr = pdata->res_data->phy_addr;
+				EMACINFO("skip_phy_detection (phyaddr)%d\n", phyaddr);
+				goto skip_phy_detection;
+			} else
+				EMACERR("Invlaid phy address specified in device tree\n");
+		}
+	}
+
 	if (pdata->res_data->phyad_change) {
 		ret = DWC_ETH_QOS_configure_io_macro_dll_settings(pdata);
 		if (ret < 0) {
@@ -1247,7 +1262,6 @@ int DWC_ETH_QOS_mdio_register(struct net_device *dev)
 			mdelay(100);
 		}
 	}
-
 
 	/* find the phy ID or phy address which is connected to our MAC */
 	for (phyaddr = 0; phyaddr < 32; phyaddr++) {
@@ -1274,6 +1288,8 @@ int DWC_ETH_QOS_mdio_register(struct net_device *dev)
 		pr_alert("%s: No phy could be detected\n", DEV_NAME);
 		return -ENOLINK;
 	}
+
+	skip_phy_detection:
 
 	pdata->phyaddr = phyaddr;
 	pdata->bus_id = 0x1;
