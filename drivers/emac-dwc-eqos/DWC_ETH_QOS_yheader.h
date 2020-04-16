@@ -1590,7 +1590,7 @@ struct DWC_ETH_QOS_res_data {
 	bool is_pinctrl_names;
 	int gpio_phy_intr_redirect;
 	int gpio_phy_reset;
-        int phy_reset_delay_msecs;
+	int phy_reset_delay_msecs[2];
 
 	/* Regulators */
 	struct regulator *gdsc_emac;
@@ -1905,6 +1905,7 @@ struct DWC_ETH_QOS_prv_data {
 
 	bool jumbo_frame_supported;
 	struct delayed_work ipv6_addr_assign_wq;
+	bool wol_enabled;
 };
 
 struct ip_params {
