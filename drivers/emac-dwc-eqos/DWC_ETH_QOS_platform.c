@@ -111,7 +111,7 @@ static int __init set_early_ethernet_ipv4(char *ipv4_addr_in)
 	if (!ipv4_addr_in)
 		return ret;
 
-	strncpy(pparams.ipv4_addr_str, ipv4_addr_in, sizeof(pparams.ipv4_addr_str));
+	strlcpy(pparams.ipv4_addr_str, ipv4_addr_in, sizeof(pparams.ipv4_addr_str));
 	EMACDBG("Early ethernet IPv4 addr: %s\n", pparams.ipv4_addr_str);
 
 	ret = in4_pton(pparams.ipv4_addr_str, -1,
@@ -134,7 +134,7 @@ static int __init set_early_ethernet_ipv6(char* ipv6_addr_in)
 	if (!ipv6_addr_in)
 		return ret;
 
-	strncpy(pparams.ipv6_addr_str, ipv6_addr_in, sizeof(pparams.ipv6_addr_str));
+	strlcpy(pparams.ipv6_addr_str, ipv6_addr_in, sizeof(pparams.ipv6_addr_str));
 	EMACDBG("Early ethernet IPv6 addr: %s\n", pparams.ipv6_addr_str);
 
 	ret = in6_pton(pparams.ipv6_addr_str, -1,
