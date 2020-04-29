@@ -3085,7 +3085,7 @@ static INT set_promiscuous_mode(void)
 
 static INT write_phy_regs(INT phy_id, INT phy_reg, INT phy_reg_data)
 {
-	ULONG RETRYCOUNT = 1000;
+	ULONG RETRYCOUNT = 5000;
 	ULONG vy_count;
 	volatile ULONG VARMAC_GMIIAR;
 
@@ -3098,7 +3098,7 @@ static INT write_phy_regs(INT phy_id, INT phy_reg, INT phy_reg_data)
 			return -Y_FAILURE;
 
 		vy_count++;
-		mdelay(1);
+		udelay(200);
 
 		MAC_GMIIAR_RGRD(VARMAC_GMIIAR);
 		if (GET_VALUE(
@@ -3132,7 +3132,7 @@ static INT write_phy_regs(INT phy_id, INT phy_reg, INT phy_reg_data)
 			return -Y_FAILURE;
 
 		vy_count++;
-		mdelay(1);
+		udelay(200);
 
 		MAC_GMIIAR_RGRD(VARMAC_GMIIAR);
 		if (GET_VALUE(
@@ -3156,7 +3156,7 @@ static INT write_phy_regs(INT phy_id, INT phy_reg, INT phy_reg_data)
 
 static INT read_phy_regs(INT phy_id, INT phy_reg, INT *phy_reg_data)
 {
-	ULONG RETRYCOUNT = 1000;
+	ULONG RETRYCOUNT = 5000;
 	ULONG vy_count;
 	volatile ULONG VARMAC_GMIIAR;
 	ULONG VARMAC_GMIIDR;
@@ -3170,8 +3170,7 @@ static INT read_phy_regs(INT phy_id, INT phy_reg, INT *phy_reg_data)
 			return -Y_FAILURE;
 
 		vy_count++;
-		mdelay(1);
-
+		udelay(200);
 		MAC_GMIIAR_RGRD(VARMAC_GMIIAR);
 		if (GET_VALUE(
 				VARMAC_GMIIAR, MAC_GMIIAR_GB_LPOS,
@@ -3202,7 +3201,7 @@ static INT read_phy_regs(INT phy_id, INT phy_reg, INT *phy_reg_data)
 			return -Y_FAILURE;
 
 		vy_count++;
-		mdelay(1);
+		udelay(200);
 
 		MAC_GMIIAR_RGRD(VARMAC_GMIIAR);
 		if (GET_VALUE(
@@ -4191,7 +4190,7 @@ static INT configure_tx_queue(UINT queue_index)
 	UINT desc_posted_write = 0x1;
 	volatile ULONG VARMTL_QTOMR;
 
-	EMACDBG("Enter\n");
+	IPC_LOW("Enter\n");
 
 	/*Flush Tx Queue */
 	MTL_QTOMR_FTQ_UDFWR(queue_index, 0x1);
@@ -4242,7 +4241,7 @@ static INT configure_tx_queue(UINT queue_index)
 	DMA_BMR_DSPW_UDFWR(desc_posted_write);
 
 	return Y_SUCCESS;
-	EMACDBG("Exit\n");
+	IPC_LOW("Exit\n");
 }
 
 static void configure_avb_ip_rx_filtering(void)
@@ -4313,7 +4312,7 @@ static INT configure_rx_queue(UINT queue_index)
 	UINT fep_config = 0x1;
 	UINT disable_csum_err_pkt_drop = 0x1;
 
-	EMACDBG("Enter\n");
+	IPC_LOW("Enter\n");
 
 	switch (queue_index) {
 	case 0:
@@ -4349,7 +4348,7 @@ static INT configure_rx_queue(UINT queue_index)
 	MTL_QRCR_RXQ_PKT_ARBIT_UDFWR(queue_index, 0x0);
 
 	return Y_SUCCESS;
-	EMACDBG("Exit\n");
+	IPC_LOW("Exit\n");
 }
 
 static INT configure_mtl_queue(UINT QINX, struct DWC_ETH_QOS_prv_data *pdata)
