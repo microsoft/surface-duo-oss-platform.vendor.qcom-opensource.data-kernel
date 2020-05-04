@@ -1626,6 +1626,8 @@ static int DWC_ETH_QOS_init_gpios(struct device *dev)
 
 		gpio_set_value(dwc_eth_qos_res_data.gpio_phy_reset, PHY_RESET_GPIO_HIGH);
 		EMACDBG("PHY is out of reset successfully\n");
+		/* Add delay of 50ms so that phy should get sufficient time*/
+		mdelay(50);
 	}
 
 	return ret;
@@ -1670,8 +1672,10 @@ int DWC_ETH_QOS_add_ipv6addr(struct DWC_ETH_QOS_prv_data *pdata)
 	struct net *net = dev_net(pdata->dev);
 
 	EMACDBG("\n");
-	if (!net || !net->genl_sock || !net->genl_sock->sk_socket)
+	if (!net || !net->genl_sock || !net->genl_sock->sk_socket) {
 		EMACERR("Sock is null, unable to assign ipv6 address\n");
+		return -EFAULT;
+	}
 
 	if (!net->ipv6.devconf_dflt) {
 		EMACDBG("ipv6.devconf_dflt is null, schedule wq\n");
@@ -1714,8 +1718,10 @@ int DWC_ETH_QOS_add_ipaddr(struct DWC_ETH_QOS_prv_data *pdata)
 	struct sockaddr_in *sin = (void *) &ir.ifr_ifru.ifru_addr;
 	struct net *net = dev_net(pdata->dev);
 
-	if (!net || !net->genl_sock || !net->genl_sock->sk_socket)
+	if (!net || !net->genl_sock || !net->genl_sock->sk_socket) {
 		EMACERR("Sock is null, unable to assign ipv4 address\n");
+		return -EFAULT;
+	}
 
 	/*For valid Ipv4 address*/
 	memset(&ir, 0, sizeof(ir));
@@ -1766,7 +1772,7 @@ static void DWC_ETH_QOS_read_mac_addr_from_config(void)
 		goto ret;
 	}
 	/* Copy Mac address as NUll terminating string */
-	memcpy(mac_str, (char *)data, size);
+	strlcpy(mac_str, (char *)data, size);
 
 	if (!mac_pton(mac_str, config_dev_addr) && !is_valid_ether_addr(config_dev_addr)) {
 		EMACERR("Invalid mac addr found in emac_config.ini\n");
