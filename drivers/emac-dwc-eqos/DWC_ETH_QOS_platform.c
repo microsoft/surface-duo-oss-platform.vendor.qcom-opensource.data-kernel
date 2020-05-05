@@ -1737,7 +1737,7 @@ static int DWC_ETH_QOS_init_gpios(struct device *dev)
 	}
 
 	if (dwc_eth_qos_res_data.is_gpio_phy_reset &&
-		!dwc_eth_qos_res_data.early_eth_en && !dwc_eth_qos_res_data.phyad_change) {
+	    !dwc_eth_qos_res_data.phyad_change) {
 		ret = setup_gpio_output_common(
 			dev, EMAC_GPIO_PHY_RESET_NAME,
 			&dwc_eth_qos_res_data.gpio_phy_reset, PHY_RESET_GPIO_LOW);
