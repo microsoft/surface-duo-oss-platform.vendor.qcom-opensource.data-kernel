@@ -967,6 +967,8 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 			}
 		}
 
+		pdata->hw_if.start_mac_tx_rx();
+
 		if (!pdata->oldlink || (pdata->oldlink == -1)) {
 			new_state = 1;
 			pdata->oldlink = 1;
@@ -998,9 +1000,7 @@ void DWC_ETH_QOS_adjust_link(struct net_device *dev)
 				DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_PHY_LINK_DOWN);
 		}
 
-		if (phydev->link == 1)
-			pdata->hw_if.start_mac_tx_rx();
-		else if (phydev->link == 0 && pdata->io_macro_phy_intf != RMII_MODE)
+		if (phydev->link == 0 && pdata->io_macro_phy_intf != RMII_MODE)
 			DWC_ETH_QOS_set_clk_and_bus_config(pdata, SPEED_10);
 	}
 
