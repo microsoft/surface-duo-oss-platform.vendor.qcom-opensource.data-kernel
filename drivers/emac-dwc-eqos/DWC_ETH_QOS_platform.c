@@ -2672,6 +2672,9 @@ static INT DWC_ETH_QOS_resume(struct device *dev)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
 
 	EMACKPI("M - Ethernet resume end");
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet resume end");
+#endif
 
 	return ret;
 }
