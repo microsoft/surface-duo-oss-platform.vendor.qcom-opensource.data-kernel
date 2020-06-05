@@ -958,6 +958,15 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 		EMACDBG("qcom,pinctrl-names present\n");
 	}
 
+	/*read qcom,phy-reset-delay-msecs value from dtsi */
+	if (of_property_read_u32_array(
+		pdev->dev.of_node,"qcom,phy-reset-delay-msecs",
+		dwc_eth_qos_res_data.phy_reset_delay_msecs,2)) {
+		//resource qcom,phy-reset-delay-msecs is not present, set delay to 10ms and 50 ms
+		dwc_eth_qos_res_data.phy_reset_delay_msecs[0] = 10;
+		dwc_eth_qos_res_data.phy_reset_delay_msecs[1] = 50;
+	}
+
 	return ret;
 
 err_out:
@@ -1622,12 +1631,19 @@ static int DWC_ETH_QOS_init_gpios(struct device *dev)
 					EMAC_GPIO_PHY_RESET_NAME);
 			goto gpio_error;
 		}
-		mdelay(1);
+		if (dwc_eth_qos_res_data.phy_reset_delay_msecs[0]) {
+			EMACDBG("phy Hw pre reset delay in msecs %d\n",dwc_eth_qos_res_data.phy_reset_delay_msecs[0]);
+			mdelay(dwc_eth_qos_res_data.phy_reset_delay_msecs[0]);
+		}
 
 		gpio_set_value(dwc_eth_qos_res_data.gpio_phy_reset, PHY_RESET_GPIO_HIGH);
 		EMACDBG("PHY is out of reset successfully\n");
-		/* Add delay of 50ms so that phy should get sufficient time*/
-		mdelay(50);
+
+		if (dwc_eth_qos_res_data.phy_reset_delay_msecs[1]) {
+			/* Add delay of 50ms so that phy should get sufficient time*/
+			EMACDBG("phy Hw post reset delay in msecs %d\n",dwc_eth_qos_res_data.phy_reset_delay_msecs[1]);
+			mdelay(dwc_eth_qos_res_data.phy_reset_delay_msecs[1]);
+		}
 	}
 
 	return ret;
@@ -2431,6 +2447,7 @@ int DWC_ETH_QOS_remove(struct platform_device *pdev)
 	if (pdata->phy_irq != 0) {
 		free_irq(pdata->phy_irq, pdata);
 		pdata->phy_irq = 0;
+        pdata->phy_irq_enabled = false;
 	}
 
 	if (pdata->phy_intr_en)
@@ -2528,10 +2545,10 @@ static void DWC_ETH_QOS_shutdown(struct platform_device *pdev)
  * \retval 0
  */
 
-static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
+static INT DWC_ETH_QOS_suspend(struct device *dev)
 {
-	struct net_device *dev = platform_get_drvdata(pdev);
-	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
+	struct DWC_ETH_QOS_prv_data *pdata = gDWC_ETH_QOS_prv_data;
+	struct net_device *net_dev = pdata->dev;
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	INT ret, pmt_flags = 0;
 	unsigned int rwk_filter_values[] = {
@@ -2565,7 +2582,7 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 		0x9b8a5506,
 	};
 
-	if (of_device_is_compatible(pdev->dev.of_node, "qcom,emac-smmu-embedded")) {
+	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded")) {
 		EMACDBG("<--DWC_ETH_QOS_suspend smmu return\n");
 		return 0;
 	}
@@ -2579,7 +2596,7 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 		return 0;
 	}
 
-	if (!dev || !netif_running(dev)) {
+	if (!net_dev || !netif_running(net_dev)) {
 		return -EINVAL;
 	}
 
@@ -2591,7 +2608,7 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
 	if (pdata->hw_feat.mgk_sel && (pdata->wolopts & WAKE_MAGIC))
 		pmt_flags |= DWC_ETH_QOS_MAGIC_WAKEUP;
 
-	ret = DWC_ETH_QOS_powerdown(dev, pmt_flags, DWC_ETH_QOS_DRIVER_CONTEXT);
+	ret = DWC_ETH_QOS_powerdown(net_dev, pmt_flags, DWC_ETH_QOS_DRIVER_CONTEXT);
 
 	DWC_ETH_QOS_suspend_clks(pdata);
 	pdata->print_kpi = 0;
@@ -2622,18 +2639,18 @@ static INT DWC_ETH_QOS_suspend(struct platform_device *pdev, pm_message_t state)
  * \retval 0
  */
 
-static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
+static INT DWC_ETH_QOS_resume(struct device *dev)
 {
-	struct net_device *dev = platform_get_drvdata(pdev);
-	struct DWC_ETH_QOS_prv_data *pdata = netdev_priv(dev);
+	struct DWC_ETH_QOS_prv_data *pdata = gDWC_ETH_QOS_prv_data;
+	struct net_device *net_dev = pdata->dev;
 	INT ret;
 
-	if (of_device_is_compatible(pdev->dev.of_node, "qcom,emac-smmu-embedded"))
+	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded"))
 		return 0;
 
 	EMACKPI("M - Ethernet resume start");
 
-	if (!dev || !netif_running(dev)) {
+	if (!net_dev || !netif_running(net_dev)) {
 		EMACERR("<--DWC_ETH_QOS_dev_resume not possible\n");
 		return -EINVAL;
 	}
@@ -2649,7 +2666,7 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 
 	DWC_ETH_QOS_resume_clks(pdata);
 
-	ret = DWC_ETH_QOS_powerup(dev, DWC_ETH_QOS_DRIVER_CONTEXT);
+	ret = DWC_ETH_QOS_powerup(net_dev, DWC_ETH_QOS_DRIVER_CONTEXT);
 
 	if (pdata->ipa_enabled)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
@@ -2661,18 +2678,109 @@ static INT DWC_ETH_QOS_resume(struct platform_device *pdev)
 
 #endif /* CONFIG_PM */
 
-static struct platform_driver DWC_ETH_QOS_plat_drv = {
-	.probe = DWC_ETH_QOS_probe,
-	.remove = DWC_ETH_QOS_remove,
-	.shutdown = DWC_ETH_QOS_shutdown,
+static int DWC_ETH_QOS_hib_restore(struct device *dev) {
+	struct DWC_ETH_QOS_prv_data *pdata = gDWC_ETH_QOS_prv_data;
+	int ret = 0;
+
+	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded"))
+		return 0;
+
+	EMACINFO(" start\n");
+
+        ret = DWC_ETH_QOS_init_regulators(dev);
+	if (ret)
+		return ret;
+
+	ret = DWC_ETH_QOS_init_gpios(dev);
+	if (ret)
+		return ret;
+
+	ret = DWC_ETH_QOS_get_clks(dev);
+	if (ret)
+		return ret;
+
+	DWC_ETH_QOS_set_clk_and_bus_config(pdata, pdata->speed);
+
+	DWC_ETH_QOS_set_rgmii_func_clk_en();
+
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+	DWC_ETH_QOS_ptp_init(pdata);
+#endif /* end of DWC_ETH_QOS_CONFIG_PTP */
+
+	/* issue software reset to device */
+	pdata->hw_if.exit();
+
+	if (!(pdata->dev->flags & IFF_UP)) {
+		pdata->dev->netdev_ops->ndo_open(pdata->dev);
+		pdata->dev->flags |= IFF_UP;
+	}
+
+	if (!(pdata->phydev->drv->config_intr &&
+		!pdata->phydev->drv->config_intr(pdata->phydev))){
+		EMACERR("Failed to configure PHY interrupts");
+		BUG();
+	}
+
+	if (pdata->phy_intr_en && pdata->phy_wol_supported ){
+		struct ethtool_wolinfo wol = {
+			.cmd = ETHTOOL_SWOL,
+			.wolopts=pdata->phy_wol_wolopts,
+		};
+		phy_ethtool_set_wol(pdata->phydev, &wol);
+	}
+
+	EMACINFO("end\n");
+
+	return ret;
+}
+
+static int DWC_ETH_QOS_hib_freeze(struct device *dev) {
+	struct DWC_ETH_QOS_prv_data *pdata = gDWC_ETH_QOS_prv_data;
+	int ret = 0;
+
+	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded"))
+		return 0;
+
+	EMACINFO(" start\n");
+	if (pdata->dev->flags & IFF_UP) {
+		pdata->dev->netdev_ops->ndo_stop(pdata->dev);
+		pdata->dev->flags &= ~IFF_UP;
+	}
+
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+	DWC_ETH_QOS_ptp_remove(pdata);
+#endif /* end of DWC_ETH_QOS_CONFIG_PTP */
+
+	DWC_ETH_QOS_disable_clks(dev);
+
+	DWC_ETH_QOS_disable_regulators();
+
+	DWC_ETH_QOS_free_gpios();
+
+	EMACINFO("end\n");
+
+	return ret;
+}
+
+static const struct dev_pm_ops DWC_ETH_QOS_pm_ops = {
+	.freeze = DWC_ETH_QOS_hib_freeze,
+	.restore = DWC_ETH_QOS_hib_restore,
+	.thaw = DWC_ETH_QOS_hib_restore,
 #ifdef CONFIG_PM
 	.suspend = DWC_ETH_QOS_suspend,
 	.resume = DWC_ETH_QOS_resume,
 #endif
+};
+
+static struct platform_driver DWC_ETH_QOS_plat_drv = {
+	.probe = DWC_ETH_QOS_probe,
+	.remove = DWC_ETH_QOS_remove,
+	.shutdown = DWC_ETH_QOS_shutdown,
 	.driver = {
 		.name = DRV_NAME,
 		.owner = THIS_MODULE,
 		.of_match_table = DWC_ETH_QOS_plat_drv_match,
+		.pm = &DWC_ETH_QOS_pm_ops,
 	},
 };
 
