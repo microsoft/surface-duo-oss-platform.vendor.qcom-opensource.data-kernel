@@ -1,4 +1,4 @@
-/* Copyright (c) 2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -48,10 +48,14 @@ static const struct pci_device_id aquantia_pci_ids[] = {
 	{ PCI_VDEVICE(AQUANTIA, 0x80b1), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x11b1), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x91b1), 0 },
-	{ PCI_VDEVICE(AQUANTIA, 0x51b1), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x12b1), 0 },
 	{ PCI_VDEVICE(AQUANTIA, 0x92b1), 0 },
-	{ PCI_VDEVICE(AQUANTIA, 0x52b1), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x00c0), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x04c0), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x12c0), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x14c0), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x93c0), 0 },
+	{ PCI_VDEVICE(AQUANTIA, 0x94c0), 0 },
 	{}
 };
 
