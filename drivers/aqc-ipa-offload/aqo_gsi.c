@@ -1,4 +1,4 @@
-/* Copyright (c) 2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -244,6 +244,12 @@ static int __aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 		return rc;
 	}
 
+	rc = ipa_eth_ep_init(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to initialize IPA Rx EP");
+		return rc;
+	}
+
 	rc = ipa_eth_gsi_alloc(ch,
 			&gsi->evt_ring_props,
 			&gsi->evt_ring_scratch.scratch,
@@ -272,6 +278,8 @@ static int __aqo_gsi_init_rx(struct aqo_device *aqo_dev)
 err_ring_ev:
 	ipa_eth_gsi_dealloc(ch);
 err_gsi_alloc:
+	ipa_eth_ep_deinit(ch);
+
 	return rc;
 }
 
@@ -302,12 +310,22 @@ static int __aqo_gsi_deinit_rx(struct aqo_device *aqo_dev)
 	ASSERT_SSR_MUTEX(aqo_dev);
 
 	rc = ipa_eth_gsi_dealloc(ch);
-	if (rc)
+	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to deinit Rx GSI rings");
-	else
-		aqo_log(aqo_dev, "Deinited Rx GSI rings");
+		return rc;
+	}
 
-	return rc;
+	aqo_log(aqo_dev, "Deinited Rx GSI rings");
+
+	rc = ipa_eth_ep_deinit(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to deinit IPA Rx EP");
+		return rc;
+	}
+
+	aqo_log(aqo_dev, "Deinited IPA Rx EP");
+
+	return 0;
 }
 
 int aqo_gsi_deinit_rx(struct aqo_device *aqo_dev)
@@ -337,13 +355,22 @@ static int __aqo_gsi_start_rx(struct aqo_device *aqo_dev)
 
 	ASSERT_SSR_MUTEX(aqo_dev);
 
-	rc = ipa_eth_gsi_start(ch);
-	if (rc)
-		aqo_log_err(aqo_dev, "Failed to start Rx GSI rings");
-	else
-		aqo_log(aqo_dev, "Started Rx GSI rings");
+	rc = ipa_eth_ep_start(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to start IPA Rx EP");
+		return rc;
+	}
 
-	return rc;
+	rc = ipa_eth_gsi_start(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to start Rx GSI rings");
+		ipa_eth_ep_stop(ch);
+		return rc;
+	}
+
+	aqo_log(aqo_dev, "Started Rx GSI rings");
+
+	return 0;
 }
 
 int aqo_gsi_start_rx(struct aqo_device *aqo_dev)
@@ -373,12 +400,22 @@ static int __aqo_gsi_stop_rx(struct aqo_device *aqo_dev)
 	ASSERT_SSR_MUTEX(aqo_dev);
 
 	rc = ipa_eth_gsi_stop(ch);
-	if (rc)
+	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to stop Rx GSI rings");
-	else
-		aqo_log(aqo_dev, "Stopped Rx GSI rings");
+		return rc;
+	}
 
-	return rc;
+	aqo_log(aqo_dev, "Stopped Rx GSI rings");
+
+	rc = ipa_eth_ep_stop(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to stop IPA Rx EP");
+		return rc;
+	}
+
+	aqo_log(aqo_dev, "Stopped IPA Rx EP");
+
+	return 0;
 }
 
 int aqo_gsi_stop_rx(struct aqo_device *aqo_dev)
@@ -519,6 +556,12 @@ static int __aqo_gsi_init_tx(struct aqo_device *aqo_dev)
 		return rc;
 	}
 
+	rc = ipa_eth_ep_init(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to initialize Tx IPA endpoint");
+		return rc;
+	}
+
 	rc = ipa_eth_gsi_alloc(ch,
 			&gsi->evt_ring_props,
 			&gsi->evt_ring_scratch.scratch,
@@ -551,6 +594,8 @@ static int __aqo_gsi_init_tx(struct aqo_device *aqo_dev)
 err_ring_ev:
 	ipa_eth_gsi_dealloc(ch);
 err_gsi_alloc:
+	ipa_eth_ep_deinit(ch);
+
 	return rc;
 }
 
@@ -581,12 +626,22 @@ static int __aqo_gsi_deinit_tx(struct aqo_device *aqo_dev)
 	ASSERT_SSR_MUTEX(aqo_dev);
 
 	rc = ipa_eth_gsi_dealloc(ch);
-	if (rc)
+	if (rc) {
 		aqo_log_err(aqo_dev, "Failed to deinit Tx GSI rings");
-	else
-		aqo_log(aqo_dev, "Deinited Tx GSI rings");
+		return rc;
+	}
 
-	return rc;
+	aqo_log(aqo_dev, "Deinited Tx GSI rings");
+
+	rc = ipa_eth_ep_deinit(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to deinit IPA Tx EP");
+		return rc;
+	}
+
+	aqo_log(aqo_dev, "Deinited IPA Tx EP");
+
+	return 0;
 }
 
 int aqo_gsi_deinit_tx(struct aqo_device *aqo_dev)
@@ -623,6 +678,12 @@ static int __aqo_gsi_start_tx(struct aqo_device *aqo_dev)
 		return rc;
 	}
 
+	rc = ipa_eth_ep_start(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to start Tx IPA endpoint");
+		goto err_ep_start;
+	}
+
 	aqo_log(aqo_dev, "Started Tx GSI rings");
 
 	/* Provide credits to IPA only once after a tx init */
@@ -631,19 +692,24 @@ static int __aqo_gsi_start_tx(struct aqo_device *aqo_dev)
 		if (rc) {
 			aqo_log_err(aqo_dev,
 				"Failed to ring Tx GSI channel DB");
-			ipa_eth_gsi_stop(ch);
-		} else {
-			aqo_log(aqo_dev,
-				"Rang Tx GSI channel DB with value %llu",
-				*ch_db_val);
-			*ch_db_val = 0;
+			goto err_ring_db;
 		}
+
+		aqo_log(aqo_dev, "Rang Tx GSI channel DB with value %llu",
+				*ch_db_val);
+		*ch_db_val = 0;
 	}
 
-	if (!rc)
-		aqo_log(aqo_dev, "Tx GSI started successfully");
-	else
-		aqo_log_err(aqo_dev, "Failed to start Tx GSI");
+	aqo_log(aqo_dev, "Tx GSI started successfully");
+
+	return 0;
+
+err_ring_db:
+	ipa_eth_ep_stop(ch);
+err_ep_start:
+	ipa_eth_gsi_stop(ch);
+
+	aqo_log_err(aqo_dev, "Failed to start Tx GSI");
 
 	return rc;
 }
@@ -674,13 +740,23 @@ static int __aqo_gsi_stop_tx(struct aqo_device *aqo_dev)
 
 	ASSERT_SSR_MUTEX(aqo_dev);
 
-	rc = ipa_eth_gsi_stop(ch);
-	if (rc)
-		aqo_log_err(aqo_dev, "Failed to stop Tx GSI rings");
-	else
-		aqo_log(aqo_dev, "Stopped Tx GSI rings");
+	rc = ipa_eth_ep_stop(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to stop IPA Tx EP");
+		return rc;
+	}
 
-	return rc;
+	aqo_log(aqo_dev, "Stopped IPA Tx EP");
+
+	rc = ipa_eth_gsi_stop(ch);
+	if (rc) {
+		aqo_log_err(aqo_dev, "Failed to stop Tx GSI rings");
+		return rc;
+	}
+
+	aqo_log(aqo_dev, "Stopped Tx GSI rings");
+
+	return 0;
 }
 
 int aqo_gsi_stop_tx(struct aqo_device *aqo_dev)
