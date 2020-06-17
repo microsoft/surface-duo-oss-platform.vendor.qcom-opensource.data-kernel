@@ -1,0 +1,17 @@
+
+ccflags-y := -Ofast
+
+# Allow warnings to fail builds
+ccflags-y += -Wall -Werror
+
+# Enable additional warnings that are compatible with kernel headers
+ccflags-y += -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-cast-function-type
+
+# Features enabled
+ccflags-y += -DCONFIG_ASPM -DENABLE_S5WOL -DENABLE_EEE -DENABLE_TX_NO_CLOSE -DCONFIG_R8125_NAPI -DCONFIG_R8125_VLAN
+
+obj-m += r8125.o
+
+r8125-y := r8125_n.o \
+		rtl_eeprom.o \
+		rtltool.o
