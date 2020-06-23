@@ -2051,6 +2051,20 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 	}
 	EMACDBG("EMAC Bit mask is %d\n", dma_bit_mask);
 
+	ret = of_property_read_u32(pdev->dev.of_node, "ipa-dma-rx-desc-cnt",
+		&pdata->prv_ipa.ipa_dma_rx_desc_cnt);
+	if (ret < 0) {
+		EMACERR("Unable to read ipa_dma_rx_desc_cnt value from device tree\n");
+		pdata->prv_ipa.ipa_dma_rx_desc_cnt = IPA_RX_DESC_CNT;
+	}
+
+	ret = of_property_read_u32(pdev->dev.of_node, "ipa-dma-tx-desc-cnt",
+		&pdata->prv_ipa.ipa_dma_tx_desc_cnt);
+	if (ret < 0) {
+		EMACERR("Unable to read ipa_dma_tx_desc_cnt value from device tree\n");
+		pdata->prv_ipa.ipa_dma_tx_desc_cnt = IPA_TX_DESC_CNT;
+	}
+
 	ret = desc_if->alloc_queue_struct(pdata);
 	if (ret < 0) {
 		dev_alert(&pdev->dev, "ERROR: Unable to alloc Tx/Rx queue\n");
