@@ -1227,8 +1227,6 @@ int DWC_ETH_QOS_mdio_register(struct net_device *dev)
 	DBGPR_MDIO("-->DWC_ETH_QOS_mdio_register\n");
 
 	if (pdata->res_data->phyad_change) {
-			pdata->speed = SPEED_1000; //Default speed
-		DWC_ETH_QOS_set_clk_and_bus_config(pdata, pdata->speed);
 		ret = DWC_ETH_QOS_configure_io_macro_dll_settings(pdata);
 		if (ret < 0) {
 			EMACERR("Failed to configure IO macro and DLL settings\n");
