@@ -1157,7 +1157,6 @@ static int DWC_ETH_QOS_init_phy(struct net_device *dev)
 		DWC_ETH_QOS_mdio_read_direct(pdata, pdata->phyaddr, DWC_ETH_QOS_PHY_SMART_SPEED, &phydata);
 		DBGPR_MDIO( "Smart Speed Reg (%#x) = %#x\n", DWC_ETH_QOS_PHY_SMART_SPEED, phydata);
 
-		DWC_ETH_QOS_set_phy_hibernation_mode(pdata, 0);
 	}
 
 	if (pdata->phy_intr_en) {
