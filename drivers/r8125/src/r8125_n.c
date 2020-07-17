@@ -88,6 +88,8 @@
 #include <linux/seq_file.h>
 #endif
 
+#include <linux/qcom_eth_smmu.h>
+
 /* Maximum number of multicast addresses to filter (vs. Rx-all-multicast).
    The RTL chips use a 64 element hash table based on the Ethernet CRC. */
 static const int multicast_filter_limit = 32;
@@ -1433,7 +1435,7 @@ static const struct rtl8125_proc_file rtl8125_proc_files[] = {
         { "eth_phy", &proc_get_eth_phy },
         { "ext_regs", &proc_get_extended_registers },
         { "pci_regs", &proc_get_pci_registers },
-        { "" }
+        { }
 };
 
 static void rtl8125_proc_init(struct net_device *dev)
@@ -12764,20 +12766,38 @@ static struct pci_driver rtl8125_pci_driver = {
 static int __init
 rtl8125_init_module(void)
 {
+int ret=0;
 #ifdef ENABLE_R8125_PROCFS
         rtl8125_proc_module_init();
 #endif
+
+	ret = qcom_smmu_register(&rtl8125_pci_driver);
+
+	if (ret) {
+		printk(KERN_INFO "%s: r8125 : Failed to register smmu with platform\n",
+		       MODULENAME);
+		return ret;
+	}
+
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,0)
-        return pci_register_driver(&rtl8125_pci_driver);
+
+        ret = pci_register_driver(&rtl8125_pci_driver);
 #else
-        return pci_module_init(&rtl8125_pci_driver);
+        ret = pci_module_init(&rtl8125_pci_driver);
 #endif
+	if (ret)
+		goto err_pci_reg;
+	return ret;
+err_pci_reg:
+		qcom_smmu_unregister(&rtl8125_pci_driver);
+		return ret;
 }
 
 static void __exit
 rtl8125_cleanup_module(void)
 {
         pci_unregister_driver(&rtl8125_pci_driver);
+		qcom_smmu_unregister(&rtl8125_pci_driver);
 #ifdef ENABLE_R8125_PROCFS
         if (rtl8125_proc) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
