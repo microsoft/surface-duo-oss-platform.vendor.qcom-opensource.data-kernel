@@ -1951,6 +1951,12 @@ static int DWC_ETH_QOS_open(struct net_device *dev)
 	if (pdata->phydev)
 		phy_start(pdata->phydev);
 
+	EMACDBG("enabling irq = %d\n", pdata->phy_irq_enabled );
+	if(!pdata->phy_irq_enabled && pdata->phy_irq){
+		enable_irq(pdata->phy_irq);
+		pdata->phy_irq_enabled= true;
+	}
+
 	pdata->eee_enabled = DWC_ETH_QOS_eee_init(pdata);
 
 #ifndef DWC_ETH_QOS_CONFIG_PGTEST
@@ -1975,7 +1981,7 @@ static int DWC_ETH_QOS_open(struct net_device *dev)
 
  err_irq_0:
 	pdata->irq_number = 0;
- DBGPR("<--DWC_ETH_QOS_open\n");
+	DBGPR("<--DWC_ETH_QOS_open\n");
 	return ret;
 }
 
@@ -2004,6 +2010,11 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 	if (pdata->eee_enabled) {
 		del_timer_sync(&pdata->eee_ctrl_timer);
 		pdata->eee_active = 0;
+	}
+	EMACDBG("diabling irq = %d\n", pdata->phy_irq_enabled );
+	if( pdata->phy_irq_enabled){
+		disable_irq(pdata->phy_irq);
+		pdata->phy_irq_enabled = false;
 	}
 
 	if (pdata->phydev)

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights
+/* Copyright (c) 2017-2020, The Linux Foundation. All rights
  * reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1017,7 +1017,7 @@ struct hw_if_struct {
 
 	/* for hw time stamping */
 	INT(*config_hw_time_stamping)(UINT);
-	INT(*config_sub_second_increment)(unsigned long ptp_clock);
+	INT(*config_sub_second_increment)(u64 ptp_clock);
 	INT(*config_default_addend)(struct DWC_ETH_QOS_prv_data *pdata, unsigned long ptp_clock);
 	INT(*init_systime)(UINT, UINT);
 	INT(*config_addend)(UINT);
@@ -1593,6 +1593,7 @@ struct DWC_ETH_QOS_res_data {
 	bool is_pinctrl_names;
 	int gpio_phy_intr_redirect;
 	int gpio_phy_reset;
+	int phy_reset_delay_msecs[2];
 
 	/* Regulators */
 	struct regulator *gdsc_emac;
@@ -1672,7 +1673,7 @@ struct DWC_ETH_QOS_prv_data {
 	bool per_ch_intr_en;
 #endif
 
-
+	bool phy_irq_enabled;
 	struct mutex mlock;
 	spinlock_t lock;
 	spinlock_t tx_lock;
