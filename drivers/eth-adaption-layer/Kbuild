@@ -1,0 +1,3 @@
+# Kernel module instructions go here.
+obj-m := eth-adaption-layer.o
+eth-adaption-layer-y := eth-adaption-client.o  eth-adaption-main.o  eth-adaption-server.o

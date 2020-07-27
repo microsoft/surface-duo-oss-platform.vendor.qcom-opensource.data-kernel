@@ -1,0 +1,11 @@
+#
+# Ethernet Adaptation Layer configuration
+#
+
+config ETH_ADAPTION_LAYER
+	tristate "Qualcomm Technologies Inc. Ethernet Adaptation Layer"
+	depends on (ARM || ARM64)
+	default y
+	help
+	  This driver supports the Ethernet Adaptation Layer
+	  Ethernet controller.
