@@ -1619,6 +1619,9 @@ struct DWC_ETH_QOS_prv_ipa_data {
 	phys_addr_t uc_db_tx_addr;
 	u32 ipa_client_hndl;
 
+	u32 ipa_dma_tx_desc_cnt;
+	u32 ipa_dma_rx_desc_cnt;
+
 	/* IPA state variables */
 	/* State of EMAC HW initilization */
 	bool emac_dev_ready;
