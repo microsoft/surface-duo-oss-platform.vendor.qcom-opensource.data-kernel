@@ -3846,10 +3846,15 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 			/* assign it to new skb */
 			skb = buffer->skb;
 			buffer->skb = NULL;
-			dma_unmap_single(GET_MEM_PDEV_DEV, buffer->dma,
+			if(buffer->dma != 0) {
+				dma_unmap_single(GET_MEM_PDEV_DEV, buffer->dma,
 					 pdata->rx_buffer_len, DMA_FROM_DEVICE);
-			buffer->dma = 0;
-
+				buffer->dma = 0;
+			}
+			else{
+				EMACDBG("Unmapping buffer without mapping");
+				goto rx_tstmp_failed;
+			}
 			/* get the packet length */
 			pkt_len =
 			    (RX_NORMAL_DESC->RDES3 & DWC_ETH_QOS_RDESC3_PL);
@@ -3928,8 +3933,14 @@ static int DWC_ETH_QOS_clean_rx_irq(struct DWC_ETH_QOS_prv_data *pdata,
 						   * The skb will be safely reused and doesn't need to be freed.
 						   */
 						   buffer = GET_RX_BUF_PTR(qinx, desc_data->cur_rx);
-						   dma_unmap_single(GET_MEM_PDEV_DEV, buffer->dma, pdata->rx_buffer_len, DMA_FROM_DEVICE);
-						   buffer->dma = 0;
+						   if(buffer->dma != 0) {
+						   	dma_unmap_single(GET_MEM_PDEV_DEV, buffer->dma, pdata->rx_buffer_len, DMA_FROM_DEVICE);
+						   	buffer->dma = 0;
+						   }
+						   else {
+							EMACDBG("Unmapping buffer without mapping");
+							goto rx_tstmp_failed;
+						   }
 						}
 					}
 				}
