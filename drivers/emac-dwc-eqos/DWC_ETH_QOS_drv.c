@@ -52,6 +52,7 @@
 #include "DWC_ETH_QOS_yapphdr.h"
 #include "DWC_ETH_QOS_drv.h"
 #include "DWC_ETH_QOS_ipa.h"
+#include "DWC_ETH_QOS_yrgmii_io_macro_regacc.h"
 
 extern ULONG dwc_eth_qos_base_addr;
 extern bool avb_class_b_msg_wq_flag;
@@ -1998,6 +1999,7 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 	struct hw_if_struct *hw_if = &pdata->hw_if;
 	struct desc_if_struct *desc_if = &pdata->desc_if;
 	int ret = 0, qinx = 0;
+	uint loopback_en = 0;
 
 	DBGPR("-->DWC_ETH_QOS_close\n");
 
@@ -2038,8 +2040,15 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 		(void)pdata->clean_rx(pdata, NAPI_PER_QUEUE_POLL_BUDGET, qinx);
 	}
 
+	if (pdata->phydev->phy_id == ATH8035_PHY_ID) {
+		RGMII_LOOPBACK_EN_UDFRD(loopback_en);
+		/*enable loopback to provide rx clock */
+		RGMII_LOOPBACK_EN_UDFWR(1);
+	}
 	/* issue software reset to device */
 	hw_if->exit();
+	if (pdata->phydev->phy_id == ATH8035_PHY_ID)
+		RGMII_LOOPBACK_EN_UDFWR(loopback_en);
 
     DWC_ETH_QOS_restart_phy(pdata);
 
