@@ -2040,14 +2040,14 @@ static int DWC_ETH_QOS_close(struct net_device *dev)
 		(void)pdata->clean_rx(pdata, NAPI_PER_QUEUE_POLL_BUDGET, qinx);
 	}
 
-	if (pdata->phydev->phy_id == ATH8035_PHY_ID) {
+	if (pdata->phydev && (pdata->phydev->phy_id == ATH8035_PHY_ID)) {
 		RGMII_LOOPBACK_EN_UDFRD(loopback_en);
 		/*enable loopback to provide rx clock */
 		RGMII_LOOPBACK_EN_UDFWR(1);
 	}
 	/* issue software reset to device */
 	hw_if->exit();
-	if (pdata->phydev->phy_id == ATH8035_PHY_ID)
+	if (pdata->phydev && (pdata->phydev->phy_id == ATH8035_PHY_ID))
 		RGMII_LOOPBACK_EN_UDFWR(loopback_en);
 
     DWC_ETH_QOS_restart_phy(pdata);
