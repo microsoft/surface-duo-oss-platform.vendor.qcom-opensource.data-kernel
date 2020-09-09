@@ -133,6 +133,7 @@
 #include <net/ipv6.h>
 #include <linux/inet.h>
 #include <asm/uaccess.h>
+#include "DWC_ETH_QOS_yapphdr.h"
 
 /* QOS Version Control Macros */
 /* #define DWC_ETH_QOS_VER_4_0 */
@@ -1648,7 +1649,11 @@ struct DWC_ETH_QOS_prv_ipa_data {
 	struct dentry *debugfs_dma_stats;
 	struct dentry *debugfs_suspend_ipa_offload;
 };
-
+struct hw_store_data {
+	ULONG VARMAC_TCR;
+	unsigned char hwts_tx_en;
+	unsigned char hwts_rx_en;
+};
 struct DWC_ETH_QOS_prv_data {
 	struct net_device *dev;
 	struct platform_device *pdev;
@@ -1910,6 +1915,15 @@ struct DWC_ETH_QOS_prv_data {
 	struct class* avb_class_b_class;
 
 	unsigned long default_ptp_clock;
+	int is_hw_restore_needed;
+	struct hw_store_data hw_data;
+
+	/*avb algo backup*/
+	struct DWC_ETH_QOS_avb_algorithm l_avb_struct_class_a;
+	bool is_class_a_avb_algo_stored;
+	struct DWC_ETH_QOS_avb_algorithm l_avb_struct_class_b;
+	bool is_class_b_avb_algo_stored;
+	int avb_algorithm_speed_backup;
 };
 
 struct ip_params {
@@ -2054,6 +2068,15 @@ int DWC_ETH_QOS_sdcc_set_bypass_mode(void);
 int DWC_ETH_QOS_rgmii_io_macro_dll_reset(struct DWC_ETH_QOS_prv_data *pdata);
 void dump_rgmii_io_macro_registers(void);
 int DWC_ETH_QOS_set_rgmii_func_clk_en(void);
+void DWC_ETH_QOS_program_avb_algorithm_hw_register(
+	struct DWC_ETH_QOS_prv_data *pdata,
+	struct DWC_ETH_QOS_avb_algorithm l_avb_struct);
+
+#ifdef CONFIG_PPS_OUTPUT
+int ETH_PPSOUT_Config(struct DWC_ETH_QOS_prv_data *pdata, struct ETH_PPS_Config *eth_pps_cfg);
+void DWC_ETH_QOS_pps_timer_init(struct ifr_data_struct *req);
+#endif
+u32 DWC_ETH_QOS_rgmii_io_macro_num_of_regs(u32 emac_hw_version);
 
 #define EMAC_MDC "dev-emac-mdc"
 #define EMAC_MDIO "dev-emac-mdio"

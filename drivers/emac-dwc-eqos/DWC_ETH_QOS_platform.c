@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1388,8 +1388,12 @@ fail_clk:
 static int DWC_ETH_QOS_panic_notifier(struct notifier_block *this,
 		unsigned long event, void *ptr)
 {
+	u32 size_iomacro_regs;
+
 	if (gDWC_ETH_QOS_prv_data) {
-		EMACINFO("gDWC_ETH_QOS_prv_data 0x%p\n", gDWC_ETH_QOS_prv_data);
+		size_iomacro_regs = DWC_ETH_QOS_rgmii_io_macro_num_of_regs(gDWC_ETH_QOS_prv_data->emac_hw_version_type)*4;
+
+                EMACINFO("gDWC_ETH_QOS_prv_data 0x%p\n", gDWC_ETH_QOS_prv_data);
 		DWC_ETH_QOS_ipa_stats_read(gDWC_ETH_QOS_prv_data);
 		DWC_ETH_QOS_dma_desc_stats_read(gDWC_ETH_QOS_prv_data);
 
@@ -1400,15 +1404,17 @@ static int DWC_ETH_QOS_panic_notifier(struct notifier_block *this,
 			(unsigned int *)kzalloc(dwc_eth_qos_res_data.emac_mem_size, GFP_KERNEL);
 		EMACINFO("emac register mem 0x%p\n", gDWC_ETH_QOS_prv_data->emac_reg_base_address);
 		if (gDWC_ETH_QOS_prv_data->emac_reg_base_address != NULL)
-			memcpy(gDWC_ETH_QOS_prv_data->emac_reg_base_address, (ULONG *)dwc_eth_qos_base_addr,
-				   dwc_eth_qos_res_data.emac_mem_size);
+			memcpy(gDWC_ETH_QOS_prv_data->emac_reg_base_address, dwc_eth_qos_base_addr,
+				dwc_eth_qos_res_data.emac_mem_size);
 
-		gDWC_ETH_QOS_prv_data->rgmii_reg_base_address =
-			(unsigned int *)kzalloc(dwc_eth_qos_res_data.rgmii_mem_size, GFP_KERNEL);
-		EMACINFO("rgmii register mem 0x%p\n", gDWC_ETH_QOS_prv_data->rgmii_reg_base_address);
-		if (gDWC_ETH_QOS_prv_data->rgmii_reg_base_address != NULL)
-			memcpy(gDWC_ETH_QOS_prv_data->rgmii_reg_base_address, (ULONG *)dwc_rgmii_io_csr_base_addr,
-				   dwc_eth_qos_res_data.rgmii_mem_size);
+		if(size_iomacro_regs > 0) {
+			gDWC_ETH_QOS_prv_data->rgmii_reg_base_address =
+				(unsigned int *)kzalloc(size_iomacro_regs, GFP_KERNEL);
+			EMACINFO("rgmii register mem 0x%p\n", gDWC_ETH_QOS_prv_data->rgmii_reg_base_address);
+			if (gDWC_ETH_QOS_prv_data->rgmii_reg_base_address != NULL)
+				memcpy(gDWC_ETH_QOS_prv_data->rgmii_reg_base_address, dwc_rgmii_io_csr_base_addr,
+					size_iomacro_regs);
+		}
 	}
 	return NOTIFY_DONE;
 }
@@ -2672,11 +2678,63 @@ static INT DWC_ETH_QOS_resume(struct device *dev)
 		DWC_ETH_QOS_ipa_offload_event_handler(pdata, EV_DPM_RESUME);
 
 	EMACKPI("M - Ethernet resume end");
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet resume end");
+#endif
 
 	return ret;
 }
 
 #endif /* CONFIG_PM */
+
+static void DWC_ETH_QOS_hib_avb_restore(struct DWC_ETH_QOS_prv_data *pdata)
+{
+
+	struct hw_if_struct *hw_if = &pdata->hw_if;
+	struct timespec now;
+#ifdef CONFIG_PPS_OUTPUT
+	struct ifr_data_struct req = {0};
+	struct ETH_PPS_Config eth_pps_cfg = {0};
+#endif
+
+	/* Restore Hw control*/
+	if (pdata->hw_data.VARMAC_TCR != 0) {
+		pdata->hwts_tx_en = pdata->hw_data.hwts_tx_en;
+		pdata->hwts_rx_en = pdata->hw_data.hwts_rx_en;
+		EMACINFO("restoring HW control first\n");
+		hw_if->config_hw_time_stamping(pdata->hw_data.VARMAC_TCR);
+	}
+	/*Restore PPS*/
+#ifdef CONFIG_PPS_OUTPUT
+	if (pdata->res_data->pps_lpass_conn_en) {
+		eth_pps_cfg.ppsout_ch = 0;
+		eth_pps_cfg.ptpclk_freq = pdata->default_ptp_clock;
+		eth_pps_cfg.ppsout_freq = DWC_ETH_QOS_DEFAULT_LPASS_PPS_FREQUENCY;
+		eth_pps_cfg.ppsout_start = 1;
+		eth_pps_cfg.ppsout_duty = 50;
+		req.ptr = (void*)&eth_pps_cfg;
+
+		ETH_PPSOUT_Config(pdata, &eth_pps_cfg);
+	}
+#endif
+	/* initialize system time */
+	if (pdata->is_hw_restore_needed == 1) {
+		/* initialize system time */
+		getnstimeofday(&now);
+		hw_if->init_systime(now.tv_sec, now.tv_nsec);
+	}
+
+	/*AVB Algorithm restore*/
+	if (pdata->is_class_a_avb_algo_stored) {
+		EMACINFO("restoring calss a \n");
+		DWC_ETH_QOS_program_avb_algorithm_hw_register(pdata, pdata->l_avb_struct_class_a);
+	}
+	if (pdata->is_class_b_avb_algo_stored) {
+		EMACINFO("restoring calss b\n");
+		DWC_ETH_QOS_program_avb_algorithm_hw_register(pdata, pdata->l_avb_struct_class_b);
+	}
+}
+
 
 static int DWC_ETH_QOS_hib_restore(struct device *dev) {
 	struct DWC_ETH_QOS_prv_data *pdata = gDWC_ETH_QOS_prv_data;
@@ -2703,12 +2761,12 @@ static int DWC_ETH_QOS_hib_restore(struct device *dev) {
 
 	DWC_ETH_QOS_set_rgmii_func_clk_en();
 
-#ifdef DWC_ETH_QOS_CONFIG_PTP
-	DWC_ETH_QOS_ptp_init(pdata);
-#endif /* end of DWC_ETH_QOS_CONFIG_PTP */
-
 	/* issue software reset to device */
 	pdata->hw_if.exit();
+
+#ifdef DWC_ETH_QOS_CONFIG_PTP
+	DWC_ETH_QOS_enable_ptp_clk(&pdata->pdev->dev);
+#endif /* end of DWC_ETH_QOS_CONFIG_PTP */
 
 	if (!(pdata->dev->flags & IFF_UP)) {
 		pdata->dev->netdev_ops->ndo_open(pdata->dev);
@@ -2729,6 +2787,8 @@ static int DWC_ETH_QOS_hib_restore(struct device *dev) {
 		phy_ethtool_set_wol(pdata->phydev, &wol);
 	}
 
+	DWC_ETH_QOS_hib_avb_restore(pdata);
+
 	EMACINFO("end\n");
 
 	return ret;
@@ -2740,6 +2800,10 @@ static int DWC_ETH_QOS_hib_freeze(struct device *dev) {
 
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded"))
 		return 0;
+	/*Backup Hw control*/
+	MAC_TCR_RGRD(pdata->hw_data.VARMAC_TCR);
+	pdata->hw_data.hwts_tx_en = pdata->hwts_tx_en;
+	pdata->hw_data.hwts_rx_en = pdata->hwts_rx_en;
 
 	EMACINFO(" start\n");
 	if (pdata->dev->flags & IFF_UP) {
@@ -2748,7 +2812,7 @@ static int DWC_ETH_QOS_hib_freeze(struct device *dev) {
 	}
 
 #ifdef DWC_ETH_QOS_CONFIG_PTP
-	DWC_ETH_QOS_ptp_remove(pdata);
+	DWC_ETH_QOS_disable_ptp_clk(&pdata->pdev->dev);
 #endif /* end of DWC_ETH_QOS_CONFIG_PTP */
 
 	DWC_ETH_QOS_disable_clks(dev);
