@@ -763,6 +763,52 @@ static int aqo_parse(struct aqo_device *aqo_dev)
 	return rc;
 }
 
+static void aqo_debugfs_init(struct aqo_device *aqo_dev, umode_t mode)
+{
+	if (aqo_dev->debugfs)
+		return;
+
+	aqo_dev->debugfs = debugfs_create_dir(
+				AQO_DRIVER_NAME, aqo_dev->eth_dev->debugfs);
+
+	debugfs_create_u32("rx_int_mod_usecs",
+		mode, aqo_dev->debugfs, &aqo_dev->rx_int_mod_usecs);
+
+	debugfs_create_u32("rx_ring_size",
+		mode, aqo_dev->debugfs, &aqo_dev->ch_rx.ring_size);
+
+	debugfs_create_u32("rx_buff_size",
+		mode, aqo_dev->debugfs, &aqo_dev->ch_rx.buff_size);
+
+	debugfs_create_u32("rx_gsi_modc",
+		mode, aqo_dev->debugfs, &aqo_dev->ch_rx.gsi_modc);
+
+	debugfs_create_u32("rx_gsi_modt",
+		mode, aqo_dev->debugfs, &aqo_dev->ch_rx.gsi_modt);
+
+	debugfs_create_u32("tx_wrb_mod_count",
+		mode, aqo_dev->debugfs, &aqo_dev->tx_wrb_mod_count);
+
+	debugfs_create_u32("tx_ring_size",
+		mode, aqo_dev->debugfs, &aqo_dev->ch_tx.ring_size);
+
+	debugfs_create_u32("tx_buff_size",
+		mode, aqo_dev->debugfs, &aqo_dev->ch_tx.buff_size);
+
+	debugfs_create_u32("tx_gsi_modc",
+		mode, aqo_dev->debugfs, &aqo_dev->ch_tx.gsi_modc);
+
+	debugfs_create_u32("tx_gsi_modt",
+		mode, aqo_dev->debugfs, &aqo_dev->ch_tx.gsi_modt);
+
+}
+
+static void aqo_debugfs_deinit(struct aqo_device *aqo_dev)
+{
+	debugfs_remove_recursive(aqo_dev->debugfs);
+	aqo_dev->debugfs = NULL;
+}
+
 static int aqo_pair(struct ipa_eth_device *eth_dev)
 {
 	int rc = 0;
@@ -799,6 +845,8 @@ static int aqo_pair(struct ipa_eth_device *eth_dev)
 
 	eth_dev->od_priv = aqo_dev;
 
+	aqo_debugfs_init(aqo_dev, 0644);
+
 	aqo_log(aqo_dev, "Successfully probed new device");
 
 	return 0;
@@ -815,6 +863,8 @@ static void aqo_unpair(struct ipa_eth_device *eth_dev)
 
 	aqo_log(aqo_dev, "Removing device");
 
+	aqo_debugfs_deinit(aqo_dev);
+
 	eth_dev->od_priv = NULL;
 
 	mutex_lock(&aqo_devices_lock);
@@ -830,6 +880,9 @@ static int aqo_init_tx(struct ipa_eth_device *eth_dev)
 {
 	int rc = 0;
 	struct aqo_device *aqo_dev = eth_dev->od_priv;
+
+	aqo_debugfs_deinit(aqo_dev);
+	aqo_debugfs_init(aqo_dev, 0444);
 
 	rc = aqo_netdev_init_tx_channel(aqo_dev);
 	if (rc) {
@@ -909,6 +962,9 @@ static int aqo_deinit_tx(struct ipa_eth_device *eth_dev)
 	aqo_netdev_deinit_tx_event(aqo_dev);
 	aqo_gsi_deinit_tx(aqo_dev);
 	aqo_netdev_deinit_tx_channel(aqo_dev);
+
+	aqo_debugfs_deinit(aqo_dev);
+	aqo_debugfs_init(aqo_dev, 0644);
 
 	aqo_log(aqo_dev, "Deinitialized Tx offload");
 
