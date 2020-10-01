@@ -22,21 +22,26 @@
 #define IPV4_ADDR_LEN 32
 #define IPV6_ADDR_LEN 48
 
+extern unsigned long receive_allocfree_stat;
+extern unsigned long send_data;
+extern unsigned long recevied_data;
+extern unsigned long error_stat;
+
 struct client_socket
 {
 	struct socket *conn_socket;
 	struct sockaddr_in *server;
 	struct sockaddr_in6 *server_v6;
+	struct kthread_worker kworker;
+	struct task_struct *task;
+	struct kthread_work init_client;
+	struct kthread_work read_data;
 	unsigned char *destip;
 	int iptype;
 	int port;
 	int connect_retry_cnt;
 	bool kpi_send_data;
 	bool kpi_receive_data;
-	struct kthread_worker kworker;
-	struct task_struct *task;
-	struct kthread_work init_client;
-	struct kthread_work read_data;
 };
 
 struct client_socket client_sk;
@@ -45,25 +50,26 @@ struct qrtr_ethernet_cb_info *cb_info_client;
 
 struct ip_params
 {
-	char ipv4_addr_str[IPV4_ADDR_LEN];
-	struct in_addr ipv4_addr;
-	char ipv6_addr_str[IPV6_ADDR_LEN];
 	struct in6_ifreq ipv6_addr;
+	struct in_addr ipv4_addr;
+	char ipv4_addr_str[IPV4_ADDR_LEN];
+	char ipv6_addr_str[IPV6_ADDR_LEN];
 };
 
 struct ip_params pparams = {0};
 
 extern struct eth_adapt_device eth_dev;
 extern struct eth_adapt_result eth_res;
-extern bool qrtr_init;
+extern int qrtr_init;
+extern struct mutex eam_lock;
 
 /**
-* client_send() - this will be called from qrtr context.
+* eth_adaption_client_send() - this will be called from qrtr context.
 * @buf: Buffer to send
 * @length: Length of the buffer
 * Return: Length of sent buffer.
 */
-int client_send(const char *buf, const size_t length)
+int eth_adaption_client_send(const char *buf, const size_t length)
 {
 	struct msghdr msg;
 	struct kvec vec;
@@ -100,15 +106,16 @@ set_fs(oldmm);
 #endif
 		client_sk.kpi_send_data =false;
 	}
+	send_data+=(written ? written:len);
 	return written ? written:len;
 } /* client_send */
 
 /**
-* client_receive() - this will be called eal context.
+* eth_adaption_client_receive() - this will be called eal context.
 * @work: kthread work
-* Return: Received buffer length.
+* Return: void.
 */
-static void client_receive(struct kthread_work *work)
+static void eth_adaption_client_receive(struct kthread_work *work)
 {
 	struct msghdr msg;
 	struct kvec vec;
@@ -116,7 +123,12 @@ static void client_receive(struct kthread_work *work)
 	int max_size = MAX_SIZE;
 	void *buf;
 
-	buf = kzalloc(max_size, GFP_KERNEL);
+	buf = kzalloc(max_size, GFP_ATOMIC);
+	if (!buf)
+		return;
+	if(!client_sk.conn_socket)
+		goto release;
+
 	msg.msg_name    = 0;
 	msg.msg_namelen = 0;
 	msg.msg_control = NULL;
@@ -125,12 +137,14 @@ static void client_receive(struct kthread_work *work)
 	vec.iov_len = max_size;
 	vec.iov_base = buf;
 
-read_again:
+	receive_allocfree_stat++;
 	len = kernel_recvmsg(client_sk.conn_socket, &msg, &vec, max_size, max_size, msg.msg_flags);
 
 	if(len == -EAGAIN || len == -ERESTARTSYS)
 	{
-		goto read_again;
+		ETHADPTDBG("Failure to read QRTR packets kernel error code %d\n",len);
+		error_stat+=len;
+		goto release;
 	}
 
 	eth_res.buf_addr = buf;
@@ -145,23 +159,27 @@ read_again:
 #endif
 	client_sk.kpi_receive_data =false;
 	}
+	recevied_data+=len;
+	receive_allocfree_stat--;
+
+release:
 	kfree(buf);
 	return;
 } /* client_receive */
 
 /**
-* client_data_ready() - this will be called init context if skb is ready.
+* eth_adaption_client_data_ready() - this will be called init context if skb is ready.
 * @sk: client socket
 * Return:void.
 */
-static void client_data_ready(struct sock *sk)
+static void eth_adaption_client_data_ready(struct sock *sk)
 {
 	ETHADPTDBG("kernel queue work called\n");
 	kthread_queue_work(&client_sk.kworker, &client_sk.read_data);
 }
 
 /**
-* client_start() - Connect to the server on other Processor.
+* eth_adaption_client_start() - Connect to the server on other Processor.
 * Notify QRTR with link up status callback if
 * connection success.
 * Wait for Rx data and pass the buffer to
@@ -169,7 +187,7 @@ static void client_data_ready(struct sock *sk)
 * @work: kthread work.
 * Return: void.
 */
-static void client_start(struct kthread_work *work)
+static void eth_adaption_client_start(struct kthread_work *work)
 {
 	struct socket *sockt;
 	struct sockaddr_in *server = NULL;
@@ -269,11 +287,16 @@ connect:
 		client_sk.server_v6 = server_v6;
 		client_sk.kpi_receive_data = true;
 		client_sk.kpi_send_data  = true;
-		cb_info_client->eth_send = eth_adapt_send;
+		cb_info_client->eth_send = eth_adaption_send;
 		qcom_ethernet_init_cb(cb_info_client);
-		qrtr_init = true;
-		kthread_init_work(&client_sk.read_data, client_receive);
-		client_sk.conn_socket->sk->sk_data_ready = client_data_ready;
+
+		/* Critical section */
+		mutex_lock(&eam_lock);
+		qrtr_init = QRTR_INIT;
+		mutex_unlock(&eam_lock);
+
+		kthread_init_work(&client_sk.read_data, eth_adaption_client_receive);
+		client_sk.conn_socket->sk->sk_data_ready = eth_adaption_client_data_ready;
 #ifdef CONFIG_MSM_BOOT_TIME_MARKER
 		place_marker("M - eth-adaption-layer client_connect connected");
 #endif
@@ -298,6 +321,11 @@ return cn;
 	// Call qrtr to initialize endpoint and pass the eth_adapt_send fn ptr to qrtr
 
 release:
+	/* Critical section */
+	mutex_lock(&eam_lock);
+	qrtr_init = QRTR_CONNFAILED;
+	mutex_unlock(&eam_lock);
+
 	if(server)
 		kfree(server);
 	if(server_v6)
@@ -305,9 +333,25 @@ release:
 	return cn;
 }
 
-int client_connect(unsigned char *destip, int iptype, int port,int connect_retry_cnt)
+/**
+* eth_adaption_client_connect() - Connect to the server on other Processor.
+* Notify QRTR with link up status callback if
+* connection success.
+* Wait for Rx data and pass the buffer to
+* QRTR.
+* @destip:
+* @iptype:
+* @port:
+* @connect_retry_cnt:
+* Return: Error code in failure case.
+*/
+int eth_adaption_client_connect(unsigned char *destip, int iptype, int port,int connect_retry_cnt)
 {
 	unsigned int ipaddr_len;
+
+	/*First thing you need to do is MUTEX init*/
+	/*Do not add any code above this comment*/
+	mutex_init(&eam_lock);
 
 	if (iptype == 0)
 		ipaddr_len = IPV4_ADDR_LEN;
@@ -318,10 +362,13 @@ int client_connect(unsigned char *destip, int iptype, int port,int connect_retry
 	client_sk.iptype = iptype;
 	client_sk.port = port;
 	client_sk.connect_retry_cnt = connect_retry_cnt;
-	qrtr_init = false;
 
-	kthread_init_work(&client_sk.init_client, client_start);
+	/* Critical section */
+	mutex_lock(&eam_lock);
+	qrtr_init = QRTR_INPROGRESS;
+	mutex_unlock(&eam_lock);
 
+	kthread_init_work(&client_sk.init_client, eth_adaption_client_start);
 	kthread_init_worker(&client_sk.kworker);
 	client_sk.task = kthread_run(kthread_worker_fn, &client_sk.kworker, "eth_adapt_rx");
 	if (IS_ERR(client_sk.task))
@@ -338,10 +385,24 @@ int client_connect(unsigned char *destip, int iptype, int port,int connect_retry
 	return 0;
 }
 
-void client_cleanup()
+/**
+* eth_adaption_client_cleanup() - this will be called eal context to cleanup module.
+* Return: void
+*/
+void eth_adaption_client_cleanup(void)
 {
 	ETHADPTINFO(KERN_ALERT"client_cleanup entry\n");
-	qrtr_init = false;
+	/* Critical section */
+	mutex_lock(&eam_lock);
+	qrtr_init = QRTR_DEINIT;
+	mutex_unlock(&eam_lock);
+
+	/*reset packet stats*/
+	send_data = 0;
+	recevied_data = 0;
+	receive_allocfree_stat = 0;
+	error_stat = 0;
+
 	if(client_sk.task)
 	{
 		kthread_cancel_work_sync(&client_sk.read_data);
@@ -352,11 +413,13 @@ void client_cleanup()
 		kthread_stop(client_sk.task);
 		client_sk.task = NULL;
 	}
+
 	if(client_sk.conn_socket)
 	{
 		kernel_sock_shutdown(client_sk.conn_socket,SHUT_RDWR);
 		tcp_abort(client_sk.conn_socket->sk, ENODEV);
 	}
+
 	if(client_sk.conn_socket)
 	{
 		sock_release(client_sk.conn_socket);
@@ -381,5 +444,5 @@ void client_cleanup()
 		client_sk.server_v6 = NULL;
 	}
 	ETHADPTINFO(KERN_ALERT"client_cleanup exit\n");
-
+	mutex_destroy(&eam_lock);
 }

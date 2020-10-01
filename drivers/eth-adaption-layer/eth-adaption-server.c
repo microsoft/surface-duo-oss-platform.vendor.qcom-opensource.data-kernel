@@ -19,14 +19,14 @@
 #include <eth-adaption-server.h>
 #include <soc/qcom/qrtr_ethernet.h>
 
+extern unsigned long receive_allocfree_stat;
+extern unsigned long send_data;
+extern unsigned long recevied_data;
+extern unsigned long error_stat;
+
+
 struct server_socket
 {
-	int server_port;
-	int iptype;
-	bool rmmod;
-	bool kpi_send_data;
-	bool kpi_receive_data;
-	int connect_retry_cnt;
 	struct socket *sock;
 	struct socket *newsocket;
 	struct sockaddr_in *server;
@@ -36,18 +36,25 @@ struct server_socket
 	struct kthread_work init_server;
 	struct kthread_work read_data;
 	struct qrtr_ethernet_cb_info *cb_info_server;
+	int server_port;
+	int iptype;
+	int connect_retry_cnt;
+	bool rmmod;
+	bool kpi_send_data;
+	bool kpi_receive_data;
 };
 
 struct server_socket serv_sk;
 
 extern struct eth_adapt_device eth_dev;
 extern struct eth_adapt_result eth_res;
-extern bool qrtr_init;
+extern int qrtr_init;
+extern struct mutex eam_lock;
 
 struct qrtr_ethernet_cb_info *cb_info_server;
 
 /**
-* server_send() - Function to send QMI packet from IPCRTR over
+* eth_adaption_server_send() - Function to send QMI packet from IPCRTR over
 * TCP socket.
 *
 * @buf: Buffer holding QMI message.
@@ -56,7 +63,7 @@ struct qrtr_ethernet_cb_info *cb_info_server;
 * Return: Length of the buffer sent.
 */
 
-int server_send(const char *buf, const size_t length)
+int eth_adaption_server_send(const char *buf, const size_t length)
 {
 	struct msghdr msg;
 	struct kvec vec;
@@ -100,19 +107,20 @@ repeat_send:
 #endif
 		serv_sk.kpi_send_data =false;
 	}
+	send_data+=(written?written:len);
 	return written?written:len;
 }
 
 /**
-* server_receive() - Function to receive QMI packet over
+* eth_adaption_server_receive() - Function to receive QMI packet over
 * TCP socket.
-* @buf: buffer for receiving QMI message.
+* @work: kworker context.
 *
 * Use this API from Ethernet Adaptation.
 *
-* Return: Length of received buffer.
+* Return: void.
 */
-static void server_receive(struct kthread_work *work)
+static void eth_adaption_server_receive(struct kthread_work *work)
 {
 	struct msghdr msg;
 	struct kvec vec;
@@ -126,8 +134,9 @@ static void server_receive(struct kthread_work *work)
 	if (!buf)
 		return;
 	if(!serv_sk.newsocket)
-		return;
+		goto release;
 
+	receive_allocfree_stat++;
 	msg.msg_name = 0;
 	msg.msg_namelen = 0;
 	msg.msg_control = NULL;
@@ -136,11 +145,15 @@ static void server_receive(struct kthread_work *work)
 
 	vec.iov_len = max_size;
 	vec.iov_base = buf;
-read_again:
+
 	len = kernel_recvmsg(serv_sk.newsocket, &msg, &vec, max_size, max_size, MSG_DONTWAIT);
 
 	if(len == -EAGAIN || len == -ERESTARTSYS)
-		goto read_again;
+	{
+		ETHADPTDBG("Failure to read QRTR packets kernel error code %d\n",len);
+		error_stat+=len;
+		goto release;
+	}
 	else
 	{
 	//send it to qrtr
@@ -156,11 +169,20 @@ read_again:
 #endif
 		serv_sk.kpi_receive_data =false;
 	}
-
+	receive_allocfree_stat--;
+	recevied_data+=len;
+release:
 kfree(buf);
 }
 
-static void server_data_ready(struct sock *sk)
+
+/**
+* eth_adaption_server_data_ready() - this will be called init context if skb is ready.
+* @sk: server socket
+* Return:void.
+*/
+
+static void eth_adaption_server_data_ready(struct sock *sk)
 {
 	ETHADPTDBG("kernel queue work called\n");
 	//queue_work(serv_sk.workqueue, &serv_sk.work);
@@ -168,11 +190,11 @@ static void server_data_ready(struct sock *sk)
 }
 
 /**
-* server_start() - Server initialization.
+* eth_adaption_server_start() - Server initialization.
 *
 * Return: 0 for Success, error code otherwise.
 */
-static void server_start(struct kthread_work *work)
+static void eth_adaption_server_start(struct kthread_work *work)
 {
 	struct socket *sock;
 	struct socket *client = NULL;
@@ -288,11 +310,16 @@ static void server_start(struct kthread_work *work)
 			return;
 		}
 		// Call qrtr to initialize endpoint and pass the eth_adapt_send fn ptr to qrtr
-		cb_info_server->eth_send = eth_adapt_send;
+		cb_info_server->eth_send = eth_adaption_send;
 		qcom_ethernet_init_cb(cb_info_server);
-		qrtr_init = true;
-		kthread_init_work(&serv_sk.read_data, server_receive);
-		serv_sk.newsocket->sk->sk_data_ready = server_data_ready;
+
+		/* Critical section */
+		mutex_lock(&eam_lock);
+		qrtr_init = QRTR_INIT;
+		mutex_unlock(&eam_lock);
+
+		kthread_init_work(&serv_sk.read_data, eth_adaption_server_receive);
+		serv_sk.newsocket->sk->sk_data_ready = eth_adaption_server_data_ready;
 #ifdef CONFIG_MSM_BOOT_TIME_MARKER
 			place_marker("M - eth-adaption-layer server_start connected");
 #endif
@@ -301,6 +328,11 @@ static void server_start(struct kthread_work *work)
 return cn;
 
 release:
+	/* Critical section */
+	mutex_lock(&eam_lock);
+	qrtr_init = QRTR_CONNFAILED;
+	mutex_unlock(&eam_lock);
+
 	if(server)
 		kfree(server);
 	if(serverv6)
@@ -309,7 +341,7 @@ release:
 }
 
 /**
-* server_init() - Function to start server for sending
+* eth_adaption_server_connect() - Function to start server for sending
   QMI packet from IPCRTR over
 * TCP socket.
 *
@@ -318,16 +350,24 @@ release:
 * @retry_count retry count required.
 * Return: Length of the buffer sent.
 */
-int server_init(int port,int iptype,int connect_retry_cnt)
+int eth_adaption_server_connect(int port,int iptype,int connect_retry_cnt)
 {
+	/*First thing you need to do is MUTEX init*/
+	/*Do not add any code above this comment*/
+	mutex_init(&eam_lock);
 	serv_sk.server_port = port;
 	serv_sk.iptype = iptype;
 	serv_sk.connect_retry_cnt = connect_retry_cnt;
 	serv_sk.rmmod = false;
 	serv_sk.kpi_receive_data = true;
 	serv_sk.kpi_send_data  = true;
-	qrtr_init = false;
-	kthread_init_work(&serv_sk.init_server, server_start);
+
+	/* Critical section */
+	mutex_lock(&eam_lock);
+	qrtr_init = QRTR_INPROGRESS;
+	mutex_unlock(&eam_lock);
+
+	kthread_init_work(&serv_sk.init_server, eth_adaption_server_start);
 	kthread_init_worker(&serv_sk.kworker);
 	serv_sk.task = kthread_run(kthread_worker_fn, &serv_sk.kworker, "eth_adapt_rx");
 	if (IS_ERR(serv_sk.task))
@@ -342,20 +382,35 @@ int server_init(int port,int iptype,int connect_retry_cnt)
 	return 0;
 }
 
-void server_cleanup()
+/**
+* eth_adaption_server_cleanup() - Function to clean up module
+* @void: void.
+* Return: void.
+*/
+void eth_adaption_server_cleanup(void)
 {
-	ETHADPTDBG("server_cleanup entry \n");
+	ETHADPTINFO("server_cleanup entry \n");
 	serv_sk.rmmod = true;
-	qrtr_init = false;
+
+	/* Critical section */
+	mutex_lock(&eam_lock);
+	qrtr_init = QRTR_DEINIT;
+	mutex_unlock(&eam_lock);
+
+	/*reset packet stats*/
+	send_data = 0;
+	recevied_data = 0;
+	receive_allocfree_stat = 0;
+	error_stat = 0;
 	if (serv_sk.task)
 	{
-			kthread_cancel_work_sync(&serv_sk.read_data);
-			kthread_cancel_work_sync(&serv_sk.init_server);
-			kthread_flush_work(&serv_sk.init_server);
-			kthread_flush_work(&serv_sk.read_data);
-			kthread_flush_worker(&serv_sk.kworker);
-			kthread_stop(serv_sk.task);
-			serv_sk.task = NULL;
+		kthread_cancel_work_sync(&serv_sk.read_data);
+		kthread_cancel_work_sync(&serv_sk.init_server);
+		kthread_flush_work(&serv_sk.init_server);
+		kthread_flush_work(&serv_sk.read_data);
+		kthread_flush_worker(&serv_sk.kworker);
+		kthread_stop(serv_sk.task);
+		serv_sk.task = NULL;
 	}
 
 	if(serv_sk.newsocket)
@@ -393,6 +448,7 @@ void server_cleanup()
 		kfree(serv_sk.serverv6);
 		serv_sk.serverv6 = NULL;
 	}
-	ETHADPTDBG("server_cleanup exit \n");
+	ETHADPTINFO("server_cleanup exit \n");
+	mutex_destroy(&eam_lock);
 }
 
