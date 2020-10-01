@@ -29,37 +29,29 @@
 #include <net/sock.h>
 
 /**
-* client_connect() - Connect to the server on other Processor.
+* eth_adaption_client_connect() - Connect to the server on other Processor.
 * Notify QRTR with link up status callback if
 * connection success.
 * Wait for Rx data and pass the buffer to
 * QRTR.
-* @destip: IPV4/IPV6 address of remote server.
+* @destip:
+* @iptype:
+* @port:
+* @connect_retry_cnt:
 * Return: Error code in failure case.
 */
-
-int client_connect(unsigned char *destip ,int iptype, int port, int retry_cnt);
+int eth_adaption_client_connect(unsigned char *destip, int iptype, int port,int connect_retry_cnt);
 
 /**
-* client_send() - this will be called from qrtr context.
+* eth_adaption_client_send() - this will be called from qrtr context.
 * @buf: Buffer to send
 * @length: Length of the buffer
 * Return: Length of sent buffer.
 */
-int client_send(const char *buf, const size_t length);
+int eth_adaption_client_send(const char *buf, const size_t length);
 
 /**
-* client_receive() - this will be called eal context.
-* @sock:
-* @str:
-* Return: Received buffer length.
+* eth_adaption_client_cleanup() - this will be called eal context to cleanup module.
+* Return: void
 */
-static void client_receive(struct kthread_work *work);
-
-/**
-* client_cleanup() - this will be called eal context.
-* @sock:
-* @str:
-* Return: Received buffer length.
-*/
-void client_cleanup(void);
+void eth_adaption_client_cleanup(void);

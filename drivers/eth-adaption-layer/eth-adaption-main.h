@@ -31,6 +31,8 @@
 #include<linux/types.h>
 #include<linux/platform_device.h>
 #include<linux/phy.h>
+#include<linux/debugfs.h>
+
 
 
 #include<net/protocol.h>
@@ -49,6 +51,12 @@
 
 #define DRV_NAME "eth-adaption-layer"
 #define MAX_SIZE 8192
+
+#define QRTR_DEINIT           0x0
+#define QRTR_INIT             0x1
+#define QRTR_INPROGRESS       0x2
+#define QRTR_CONNFAILED       0x3
+
 #define ETHADPTDBG(fmt, args...) \
 do {\
 	pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
@@ -63,7 +71,7 @@ do {\
 } while (0)
 
 /**
-* eth_adapt_send() - Function to send QMI packet from IPCRTR over TCP socket.
+* eth_adaption_send() - Function to send QMI packet from IPCRTR over TCP socket.
 *
 * @skb: buffer holding QMI message.
 *
@@ -71,10 +79,16 @@ do {\
 *
 * Return: 0 on success, non-zero otherwise
 */
-int eth_adapt_send(struct sk_buff *skb);
+int eth_adaption_send(struct sk_buff *skb);
 
 /**
 * eth_adaption_notifier_soft_reset() - resets Ethernet adaptation module.
 * Return: void
 */
-void eth_adaption_notifier_soft_reset(void);
+void eth_adaption_notifier_soft_reset(struct kthread_work *work);
+
+/**
+* eth_adaption_notifier_soft_set() - sets Ethernet adaptation module.
+* Return: void
+*/
+void eth_adaption_notifier_soft_set(struct kthread_work *work);

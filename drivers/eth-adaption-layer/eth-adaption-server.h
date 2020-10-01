@@ -28,9 +28,8 @@
 #include <asm/uaccess.h>
 #include <net/sock.h>
 
-
 /**
-* server_init() - Function to start server for sending
+* eth_adaption_server_connect() - Function to start server for sending
   QMI packet from IPCRTR over
 * TCP socket.
 *
@@ -39,10 +38,10 @@
 * @retry_count retry count required.
 * Return: Length of the buffer sent.
 */
-int server_init(int port,int iptype, int retry_count);
+int eth_adaption_server_connect(int port,int iptype,int connect_retry_cnt);
 
 /**
-* server_send() - Function to send QMI packet from IPCRTR over
+* eth_adaption_server_send() - Function to send QMI packet from IPCRTR over
 * TCP socket.
 *
 * @buf: Buffer holding QMI message.
@@ -50,11 +49,11 @@ int server_init(int port,int iptype, int retry_count);
 *
 * Return: Length of the buffer sent.
 */
-int server_send(const char *buf, const size_t length);
+int eth_adaption_server_send(const char *buf, const size_t length);
 
 /**
-* server_cleanup() - Function to clean up module
+* eth_adaption_server_cleanup() - Function to clean up module
 * @void: void.
 * Return: void.
 */
-void server_cleanup(void);
+void eth_adaption_server_cleanup(void);
