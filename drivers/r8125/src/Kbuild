@@ -9,9 +9,12 @@ ccflags-y += -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-cast-function-
 
 # Features enabled
 ccflags-y += -DCONFIG_ASPM -DENABLE_S5WOL -DENABLE_EEE -DENABLE_TX_NO_CLOSE -DCONFIG_R8125_NAPI -DCONFIG_R8125_VLAN
+ccflags-$(CONFIG_R8125_IPA_OFFLOAD) += -DCONFIG_RTL8125_IPA_OFFLOAD
 
 obj-m += r8125.o
 
 r8125-y := r8125_n.o \
 		rtl_eeprom.o \
 		rtltool.o
+
+r8125-$(CONFIG_R8125_IPA_OFFLOAD) += r8125_ipa.o
