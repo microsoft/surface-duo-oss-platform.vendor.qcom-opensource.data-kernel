@@ -159,6 +159,32 @@ ULONG rgmii_io_macro_dll_por_values
 	},
 };
 
+inline u32 DWC_ETH_QOS_rgmii_io_macro_num_of_regs(u32 emac_hw_version)
+{
+	switch(emac_hw_version)
+	{
+		case EMAC_HW_v2_0_0:
+			return 27;
+		case EMAC_HW_v2_1_0:
+			return 27;
+		case EMAC_HW_v2_1_1:
+			return 27;
+		case EMAC_HW_v2_1_2:
+			return 27;
+		case EMAC_HW_v2_2_0:
+			return 27;
+		case EMAC_HW_v2_3_0:
+			return 28;
+		case EMAC_HW_v2_3_1:
+			return 27;
+		case EMAC_HW_v2_3_2:
+			return 29;
+		case EMAC_HW_None:
+		default:
+			return 0;
+	}
+}
+
 /* SDCDC DLL initialization */
 /*!
  * \brief Initialize the SDCDC
