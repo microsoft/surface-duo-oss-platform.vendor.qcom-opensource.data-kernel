@@ -1,4 +1,4 @@
-/* Copyright (c) 2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -232,6 +232,8 @@ struct aqo_device {
 	struct mutex ssr_mutex;
 
 	struct aqo_regs regs_save;
+
+	struct dentry *debugfs;
 };
 
 #define AQO_ETHDEV(aqo_dev) ((aqo_dev)->eth_dev)
