@@ -276,9 +276,13 @@ static int suspend_all_bridged_interfaces(void)
 	return 0;
 }
 
-
+#ifdef ISKERNEL5_4
+static void inactivity_timer_cb(struct timer_list *t)
+{
+#else
 static void inactivity_timer_cb(unsigned long data)
 {
+#endif
 	struct gsb_ctx *pgsb_ctx = __gc;
 
 	if (IS_ERR_OR_NULL(pgsb_ctx))
@@ -2261,7 +2265,11 @@ static int __init gsb_init_module(void)
 	spin_lock_init(&pgsb_ctx->gsb_lock);
 	pgsb_ctx->gsb_lock_acquired = false;
 
+#ifdef ISKERNEL5_4
+	memcpy(&pgsb_ctx->gsb_wake_src, wakeup_source_create("gsb_wake_source"), sizeof(&pgsb_ctx->gsb_wake_src));
+#else
 	wakeup_source_init(&pgsb_ctx->gsb_wake_src, "gsb_wake_source");
+#endif
 	pgsb_ctx->do_we_need_wake_source = false;
 	pgsb_ctx->is_wake_src_acquired = false;
 	pgsb_ctx->mem_alloc_if_ipa_context = 0;
@@ -2328,7 +2336,11 @@ static int __init gsb_init_module(void)
 		}
 	}
 
+#ifdef ISKERNEL5_4
+	timer_setup(&INACTIVITY_TIMER, inactivity_timer_cb, 0);
+#else
 	setup_timer(&INACTIVITY_TIMER, inactivity_timer_cb, 0);
+#endif
 
 
 	/*
@@ -2390,7 +2402,11 @@ static void __exit gsb_exit_module(void)
 	{
 		__pm_relax(&pgsb_ctx->gsb_wake_src);
 	}
+#ifdef ISKERNEL5_4
+	wakeup_source_destroy(&pgsb_ctx->gsb_wake_src);
+#else
 	wakeup_source_trash(&pgsb_ctx->gsb_wake_src);
+#endif
 
 	gsb_debugfs_exit(pgsb_ctx);
 	gsb_ioctl_deinit();
