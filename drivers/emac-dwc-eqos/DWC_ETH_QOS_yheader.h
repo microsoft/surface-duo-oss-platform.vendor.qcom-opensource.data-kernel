@@ -259,7 +259,7 @@
 	0x13c7ULL << 32)
 #define MAC_MASK (0x10ULL << 0)
 
-#define IPA_TX_DESC_CNT	128 /*Increase the TX desc count to 128 for IPA offload*/
+#define IPA_TX_DESC_CNT	1024 /*Increase the TX desc count to 1024 for IPA offload*/
 #define IPA_RX_DESC_CNT	128 /*Increase the RX desc count to 128 for IPA offload*/
 
 #define TX_DESC_CNT 256
