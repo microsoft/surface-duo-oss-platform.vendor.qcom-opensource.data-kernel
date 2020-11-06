@@ -149,10 +149,66 @@ static const struct pci_device_id *pci_device_ids;
 	} while (0)
 #endif /* DEBUG */
 
+enum RTL8125_registers_extra {
+	R8125_TX_NEW_CTRL = 0x203E,
+	R8125_TX_DESC_NEW_MOD = 0x0400,
+	R8125_INT_MITI_V2_1_RX = 0x0A08,
+	R8125_TDU_STATUS = 0x0D08,
+	R8125_RDU_STATUS = 0x0D0A,
+	R8125_PLA_TXQ0_IDLE_CREDIT = 0x2500,
+	R8125_PLA_TXQ1_IDLE_CREDIT = 0x2504,
+	R8125_RSS_KEY = 0x4600,
+	R8125_RSS_I_TABLE = 0x4700,
+};
+
 struct rtl8125_regs {
 	ktime_t begin_ktime;
 	ktime_t end_ktime;
 	u64 duration_ns;
+
+	u32 txq0_dsc_st_addr_0;
+	u32 txq0_dsc_st_addr_2;
+	u32 txq1_dsc_st_addr_0;
+	u32 txq1_dsc_st_addr_2;
+	u8 tppoll;
+	u32 tcr;
+	u8 command_register;
+	u8 tx_desc_new_mod;
+
+	u32 rxq0_dsc_st_addr_0;
+	u32 rxq0_dsc_st_addr_2;
+	u32 rxq1_dsc_st_addr_0;
+	u32 rxq1_dsc_st_addr_2;
+	u16 rms;
+	u32 rcr;
+
+	u32 phy_status;
+	u16 cplus_cmd;
+
+	u16 sw0_tail_ptr;
+	u16 next_hwq0_clo_ptr;
+	u16 sw1_tail_ptr;
+	u16 next_hwq1_clo_ptr;
+	u16 tc_mode;
+
+	u16 int_miti_rxq0;
+	u16 int_miti_txq0;
+	u16 int_miti_rxq1;
+	u16 int_miti_txq1;
+	u8 int_config;
+	u32 imr_new;
+	u32 isr_new;
+
+	u8 tdu_status;
+	u16 rdu_status;
+
+	u32 pla_tx_q0_idle_credit;
+	u32 pla_tx_q1_idle_credit;
+
+	u32 rss_ctrl;
+	u8 rss_key[RTL8125_RSS_KEY_SIZE];
+	u8 rss_i_table[RTL8125_MAX_INDIRECTION_TABLE_ENTRIES];
+	u16 rss_queue_num_sel_r;
 };
 
 union rtl8125_ipa_eth_hdr {
@@ -882,23 +938,78 @@ static int rtl8125_deinit_rx(struct ipa_eth_device *eth_dev)
 	return 0;
 }
 
-size_t rtl8125_regs_save(struct rtl8125_device *rtl_dev,
-				struct rtl8125_regs *regs)
-{
-
-	regs->begin_ktime = ktime_get();
-
-	regs->end_ktime = ktime_get();
-
-	regs->duration_ns =
-		ktime_to_ns(ktime_sub(regs->end_ktime, regs->begin_ktime));
-
-	return 0;
-}
-
 static int rtl8125_save_regs(struct ipa_eth_device *eth_dev,
 		void **regs, size_t *size)
 {
+	struct rtl8125_device *rtl_dev = eth_dev->od_priv;
+	struct rtl8125_private *tp = rtl_dev->rtl8125_tp;
+	struct rtl8125_regs *rtl_regs = &rtl_dev->regs_save;
+	int i;
+
+	rtl_regs->begin_ktime = ktime_get();
+
+	rtl_regs->txq0_dsc_st_addr_0 = RTL_R32(tp, TxDescStartAddrLow);
+	rtl_regs->txq0_dsc_st_addr_2 = RTL_R32(tp, TxDescStartAddrHigh);
+	rtl_regs->txq1_dsc_st_addr_0 = RTL_R32(tp, TNPDS_Q1_LOW_8125);
+	rtl_regs->txq1_dsc_st_addr_2 = RTL_R32(tp, (TNPDS_Q1_LOW_8125 + 4));
+	rtl_regs->tppoll = RTL_R8(tp, TPPOLL_8125);
+	rtl_regs->tcr = RTL_R32(tp, TxConfig);
+	rtl_regs->command_register = RTL_R8(tp, ChipCmd);
+	rtl_regs->tx_desc_new_mod = RTL_R8(tp, R8125_TX_DESC_NEW_MOD);
+
+	rtl_regs->rxq0_dsc_st_addr_0 = RTL_R32(tp, RxDescAddrLow);
+	rtl_regs->rxq0_dsc_st_addr_2 = RTL_R32(tp, RxDescAddrHigh);
+	rtl_regs->rxq1_dsc_st_addr_0 = RTL_R32(tp, RDSAR_Q1_LOW_8125);
+	rtl_regs->rxq1_dsc_st_addr_2 = RTL_R32(tp, (RDSAR_Q1_LOW_8125 + 4));
+	rtl_regs->rms = RTL_R16(tp, RxMaxSize);
+	rtl_regs->rcr = RTL_R32(tp, RxConfig);
+
+	rtl_regs->phy_status = RTL_R32(tp, PHYstatus);
+	rtl_regs->cplus_cmd = RTL_R16(tp, CPlusCmd);
+
+	rtl_regs->sw0_tail_ptr = RTL_R16(tp, SW_TAIL_PTR0_8125);
+	rtl_regs->next_hwq0_clo_ptr = RTL_R16(tp, HW_CLO_PTR0_8125);
+	rtl_regs->sw1_tail_ptr = RTL_R16(tp, (SW_TAIL_PTR0_8125 + 4));
+	rtl_regs->next_hwq1_clo_ptr = RTL_R16(tp, (HW_CLO_PTR0_8125 + 4));
+	rtl_regs->tc_mode = RTL_R16(tp, R8125_TX_NEW_CTRL);
+
+	rtl_regs->int_miti_rxq0 = RTL_R16(tp, INT_MITI_V2_0_RX);
+	rtl_regs->int_miti_txq0 = RTL_R16(tp, INT_MITI_V2_0_TX);
+	rtl_regs->int_miti_rxq1 = RTL_R16(tp, R8125_INT_MITI_V2_1_RX);
+	rtl_regs->int_miti_txq1 = RTL_R16(tp, INT_MITI_V2_1_TX);
+	rtl_regs->int_config = RTL_R8(tp, INT_CFG0_8125);
+	rtl_regs->imr_new = RTL_R32(tp, IMR_V2_CLEAR_REG_8125);
+	rtl_regs->isr_new = RTL_R32(tp, ISR_V2_8125);
+
+	rtl_regs->tdu_status = RTL_R8(tp, R8125_TDU_STATUS);
+	rtl_regs->rdu_status = RTL_R16(tp, R8125_RDU_STATUS);
+
+	rtl_regs->pla_tx_q0_idle_credit = RTL_R32(tp,
+						R8125_PLA_TXQ0_IDLE_CREDIT);
+	rtl_regs->pla_tx_q1_idle_credit = RTL_R32(tp,
+						R8125_PLA_TXQ1_IDLE_CREDIT);
+
+	rtl_regs->rss_ctrl = RTL_R32(tp, RSS_CTRL_8125);
+	for (i = 0; i < RTL8125_RSS_KEY_SIZE; i++)
+		rtl_regs->rss_key[i] = RTL_R8(tp, R8125_RSS_KEY + i);
+
+	for (i = 0; i < RTL8125_MAX_INDIRECTION_TABLE_ENTRIES; i++)
+		rtl_regs->rss_i_table[i] = RTL_R8(tp, R8125_RSS_I_TABLE + i);
+
+	rtl_regs->rss_queue_num_sel_r = RTL_R16(tp, Q_NUM_CTRL_8125);
+
+	rtl_regs->end_ktime = ktime_get();
+
+	rtl_regs->duration_ns =
+		ktime_to_ns(ktime_sub(rtl_regs->end_ktime,
+					rtl_regs->begin_ktime));
+
+	if (regs)
+		*regs = rtl_regs;
+
+	if (size)
+		*size = sizeof(*rtl_regs);
+
 	return 0;
 }
 
