@@ -1609,6 +1609,8 @@ struct DWC_ETH_QOS_res_data {
 	bool is_bit_mask;
 	bool early_eth_en;
 	bool phyad_change;
+	u32 phyvoltage_min;
+	u32 phyvoltage_max;
 };
 
 struct DWC_ETH_QOS_prv_ipa_data {

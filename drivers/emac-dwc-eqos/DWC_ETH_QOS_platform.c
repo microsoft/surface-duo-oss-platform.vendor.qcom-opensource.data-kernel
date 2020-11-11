@@ -903,6 +903,12 @@ static int DWC_ETH_QOS_get_dts_config(struct platform_device *pdev)
 	if (of_property_read_bool(pdev->dev.of_node, "qcom,phyad_change"))
 		dwc_eth_qos_res_data.phyad_change = 1;
 
+	dwc_eth_qos_res_data.phyvoltage_min = 3075000;
+	ret = of_property_read_u32(pdev->dev.of_node, "qcom,phyvoltage_min", &dwc_eth_qos_res_data.phyvoltage_min);
+
+	dwc_eth_qos_res_data.phyvoltage_max = 3200000;
+	ret = of_property_read_u32(pdev->dev.of_node, "qcom,phyvoltage_max", &dwc_eth_qos_res_data.phyvoltage_max);
+
 	ret = DWC_ETH_QOS_get_io_macro_config(pdev);
 	if (ret)
 		goto err_out;
@@ -1503,9 +1509,8 @@ static int DWC_ETH_QOS_init_regulators(struct device *dev)
 				EMACERR("Unable to set HPM of vreg_emac_phy:%d\n", ret);
 				goto reg_error;
 			}
-			/* Specific voltage needs to be voted for vreg_emac_phy-supply in this case*/
-			ret = regulator_set_voltage(dwc_eth_qos_res_data.reg_emac_phy, 3075000,
-								3200000);
+			ret = regulator_set_voltage(dwc_eth_qos_res_data.reg_emac_phy,dwc_eth_qos_res_data.phyvoltage_min,
+									dwc_eth_qos_res_data.phyvoltage_max);
 			if (ret) {
 				EMACERR("Unable to set voltage for vreg_emac_phy:%d\n", ret);
 				goto reg_error;
