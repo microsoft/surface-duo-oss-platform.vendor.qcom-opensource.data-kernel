@@ -138,7 +138,7 @@ static int DWC_ETH_QOS_alloc_rx_queue_struct(struct DWC_ETH_QOS_prv_data *pdata)
 		pdata->rx_queue[chInx].desc_cnt = RX_DESC_CNT;
 
 		if (pdata->ipa_enabled && chInx == IPA_DMA_RX_CH)
-			pdata->rx_queue[chInx].desc_cnt = IPA_RX_DESC_CNT;
+			pdata->rx_queue[chInx].desc_cnt = pdata->prv_ipa.ipa_dma_rx_desc_cnt;
 
 		rx_desc_data = &pdata->rx_queue[chInx].rx_desc_data;
 
@@ -288,7 +288,7 @@ static int DWC_ETH_QOS_alloc_tx_queue_struct(struct DWC_ETH_QOS_prv_data *pdata)
 		pdata->tx_queue[chInx].desc_cnt = TX_DESC_CNT;
 
 		if (pdata->ipa_enabled && chInx == IPA_DMA_TX_CH)
-			pdata->tx_queue[chInx].desc_cnt = IPA_TX_DESC_CNT;
+			pdata->tx_queue[chInx].desc_cnt = pdata->prv_ipa.ipa_dma_tx_desc_cnt;
 
 		tx_desc_data = &pdata->tx_queue[chInx].tx_desc_data;
 
