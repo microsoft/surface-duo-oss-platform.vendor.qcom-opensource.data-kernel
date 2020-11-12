@@ -1643,6 +1643,10 @@ struct DWC_ETH_QOS_prv_ipa_data {
 	struct dentry *debugfs_ipa_stats;
 	struct dentry *debugfs_dma_stats;
 	struct dentry *debugfs_suspend_ipa_offload;
+
+	/* desc count */
+	u32 ipa_dma_tx_desc_cnt;
+	u32 ipa_dma_rx_desc_cnt;
 };
 
 struct DWC_ETH_QOS_prv_data {
