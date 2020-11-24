@@ -84,6 +84,16 @@ module_param(ipa_offload_en, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(ipa_offload_en,
 		 "Enable IPA offload [0-DISABLE, 1-ENABLE]");
 
+uint ipa_tx_desc_cnt = IPA_TX_DESC_CNT;
+module_param(ipa_tx_desc_cnt, uint, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(ipa_tx_desc_cnt,
+		 "IPA TX descriptor count [min-128, max-1024]");
+
+uint ipa_rx_desc_cnt = IPA_RX_DESC_CNT;
+module_param(ipa_rx_desc_cnt, uint, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(ipa_rx_desc_cnt,
+		 "IPA RX descriptor count [min-128, max-1024]");
+
 static char *phy_intf = "";
 module_param(phy_intf, charp, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(phy_intf, "phy interface [rgmii, rmii, mii]");
@@ -2019,6 +2029,13 @@ static int DWC_ETH_QOS_configure_netdevice(struct platform_device *pdev)
 		}
 	}
 	EMACDBG("EMAC Bit mask is %d\n", dma_bit_mask);
+
+	if (pdata->ipa_enabled) {
+		pdata->prv_ipa.ipa_dma_tx_desc_cnt = ipa_tx_desc_cnt;
+		EMACINFO("ipa_tx_desc_cnt_mod_param = %d\n", ipa_tx_desc_cnt);
+		pdata->prv_ipa.ipa_dma_rx_desc_cnt = ipa_rx_desc_cnt;
+		EMACINFO("ipa_rx_desc_cnt_mod_param = %d\n", ipa_rx_desc_cnt);
+	}
 
 	ret = desc_if->alloc_queue_struct(pdata);
 	if (ret < 0) {
