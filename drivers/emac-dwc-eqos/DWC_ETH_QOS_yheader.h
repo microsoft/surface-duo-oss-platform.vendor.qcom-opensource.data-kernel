@@ -259,7 +259,7 @@
 	0x13c7ULL << 32)
 #define MAC_MASK (0x10ULL << 0)
 
-#define IPA_TX_DESC_CNT	128 /*Increase the TX desc count to 128 for IPA offload*/
+#define IPA_TX_DESC_CNT	1024 /*Increase the TX desc count to 1024 for IPA offload*/
 #define IPA_RX_DESC_CNT	128 /*Increase the RX desc count to 128 for IPA offload*/
 
 #define TX_DESC_CNT 256
@@ -1643,6 +1643,10 @@ struct DWC_ETH_QOS_prv_ipa_data {
 	struct dentry *debugfs_ipa_stats;
 	struct dentry *debugfs_dma_stats;
 	struct dentry *debugfs_suspend_ipa_offload;
+
+	/* desc count */
+	u32 ipa_dma_tx_desc_cnt;
+	u32 ipa_dma_rx_desc_cnt;
 };
 
 struct DWC_ETH_QOS_prv_data {
