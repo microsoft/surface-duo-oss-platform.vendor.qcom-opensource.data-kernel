@@ -58,7 +58,7 @@
 
 #define RTL_LOG_PREFIX "[RTL8125] "
 
-static bool enable_ipa_offload;
+static bool enable_ipa_offload = true;
 
 /*setting mode 0 so that the module parameter cannot be modified from sysfs*/
 module_param(enable_ipa_offload, bool, 0000);
