@@ -208,18 +208,17 @@ static void rtl8125_ipa_notify_cb(void *priv,
 	netif_rx_ni(skb);
 }
 
-static int rtl8125_match_pci(struct rtl8125_device *rtl_dev)
+static int rtl8125_match_pci(struct device *dev)
 {
-	struct device *dev = to_dev(rtl_dev);
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 
 	if (dev->bus != &pci_bus_type) {
-		rtl_log(rtl_dev, "Device bus type is not PCI");
+		rtl_log(NULL, "Device bus type is not PCI");
 		return -EINVAL;
 	}
 
 	if (!pci_match_id(pci_device_ids, pci_dev)) {
-		rtl_log(rtl_dev, "Device PCI ID is not compatible");
+		rtl_log(NULL, "Device PCI ID is not compatible");
 		return -ENODEV;
 	}
 
@@ -229,24 +228,25 @@ static int rtl8125_match_pci(struct rtl8125_device *rtl_dev)
 static int rtl8125_pair(struct ipa_eth_device *eth_dev)
 {
 	int rc = 0;
+	struct device *dev = eth_dev->dev;
 	struct rtl8125_device *rtl_dev = eth_dev->od_priv;
 
-	rtl_log(rtl_dev, "Pairing started");
+	rtl_log(NULL, "Pairing started");
 
-	if (!eth_dev || !eth_dev->dev) {
-		rtl_log_err(rtl_dev, "Invalid ethernet device structure");
+	if (!eth_dev || !dev) {
+		rtl_log_err(NULL, "Invalid ethernet device structure");
 		return -EFAULT;
 	}
 
-	rc = rtl8125_match_pci(rtl_dev);
+	rc = rtl8125_match_pci(dev);
 	if (rc) {
-		rtl_log(rtl_dev, "Failed to parse device");
+		rtl_log(NULL, "Failed to parse device");
 		goto err_parse;
 	}
 
-	rtl_dev->mmio_phys_addr = pci_resource_start(to_pci_dev(eth_dev->dev),
+	rtl_dev->mmio_phys_addr = pci_resource_start(to_pci_dev(dev),
 							RTL8125_BAR_MMIO);
-	rtl_dev->mmio_size = pci_resource_len(to_pci_dev(eth_dev->dev),
+	rtl_dev->mmio_size = pci_resource_len(to_pci_dev(dev),
 							RTL8125_BAR_MMIO);
 
 	rtl_log(rtl_dev, "Successfully paired");
