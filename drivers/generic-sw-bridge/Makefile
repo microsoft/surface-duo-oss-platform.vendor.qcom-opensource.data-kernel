@@ -20,6 +20,11 @@ MY_CFLAGS += -g
 ccflags-y += ${MY_CFLAGS}
 CC += ${MY_CFLAGS}
 
+KVER = $(KERNEL_VERSION)
+ifeq ($(KVER),$(filter 5.4%,$(KVER)))
+ccflags-y += -DISKERNEL5_4
+endif
+
 gsb-objs := \
 	generic_sw_bridge_main.o
 all:

@@ -450,6 +450,7 @@ static int DWC_ETH_QOS_ipa_offload_suspend(struct DWC_ETH_QOS_prv_data *pdata)
 	if (pdata->prv_ipa.ipa_uc_ready) {
 		profile.max_supported_bw_mbps = IPA_PIPE_MIN_BW;
 		profile.client = IPA_CLIENT_ETHERNET_CONS;
+		profile.proto = IPA_UC_NTN;
 		ret = ipa_set_perf_profile(&profile);
 		if (ret)
 			EMACERR("Err to set BW: IPA_RM_RESOURCE_ETHERNET_CONS err:%d\n",
@@ -508,6 +509,7 @@ static int DWC_ETH_QOS_ipa_offload_resume(struct DWC_ETH_QOS_prv_data *pdata)
 
 	profile.max_supported_bw_mbps = pdata->speed;
 	profile.client = IPA_CLIENT_ETHERNET_CONS;
+	profile.proto = IPA_UC_NTN;
 	ret = ipa_set_perf_profile(&profile);
 	if (ret)
 		EMACERR("Err to set BW: IPA_RM_RESOURCE_ETHERNET_CONS err:%d\n",
@@ -1140,6 +1142,7 @@ static int DWC_ETH_QOS_ipa_offload_connect(struct DWC_ETH_QOS_prv_data *pdata)
 	/* Set Perf Profile For PROD/CONS Pipes */
 	profile.max_supported_bw_mbps = pdata->speed;
 	profile.client = IPA_CLIENT_ETHERNET_PROD;
+	profile.proto = IPA_UC_NTN;
 	ret = ipa_set_perf_profile (&profile);
 	if (ret) {
 		EMACERR("Err to set BW: IPA_RM_RESOURCE_ETHERNET_PROD err:%d\n",
