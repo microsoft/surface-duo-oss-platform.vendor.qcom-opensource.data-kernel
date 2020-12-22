@@ -1612,6 +1612,7 @@ struct DWC_ETH_QOS_res_data {
 	bool is_bit_mask;
 	bool early_eth_en;
 	bool pps_lpass_conn_en;
+	int phy_addr;
 };
 
 struct DWC_ETH_QOS_prv_ipa_data {
